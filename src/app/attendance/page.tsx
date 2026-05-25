@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -9,9 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Upload, AlertCircle, Pencil } from "lucide-react";
-import { upsertAttendanceLog, deleteAttendanceLog, importAttendanceCSV } from "./actions";
-import { SCHEDULE_OPTIONS, expectedOut, parseCSV } from "@/lib/attendance-utils";
+import { Plus, Trash2, Upload, Pencil } from "lucide-react";
+import { upsertAttendanceLog, deleteAttendanceLog } from "./actions";
+import { SCHEDULE_OPTIONS, expectedOut } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
 type Log = {
@@ -164,9 +164,22 @@ export default function AttendancePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Log | null>(null);
-  const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  // import dialog
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; total: number; errors: { row: number; message: string }[] } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // toast
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function load() {
     const [logsRes, empRes] = await Promise.all([
@@ -195,24 +208,37 @@ export default function AttendancePage() {
     });
   }
 
-  function handleCSVUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      const rows = parseCSV(text) as {
-        date: string; employee: string; schedule: string;
-        actual_in: string; actual_out: string;
-      }[];
-      startTransition(async () => {
-        const result = await importAttendanceCSV(rows);
-        setCsvErrors(result.errors);
-        load();
-        if (fileRef.current) fileRef.current.value = "";
-      });
-    };
-    reader.readAsText(file);
+  async function handleImport(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!importFile) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      const res = await fetch("/api/attendance/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error ?? "Import failed");
+      } else {
+        setImportResult(data);
+        if (data.inserted > 0) {
+          await load();
+          setToast(`${data.inserted} record${data.inserted === 1 ? "" : "s"} imported`);
+        }
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function resetImport() {
+    setImportFile(null);
+    setImportResult(null);
+    setImportError(null);
   }
 
   return (
@@ -223,10 +249,66 @@ export default function AttendancePage() {
           <h1 className="text-2xl font-bold">Attendance</h1>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={isPending}>
-            <Upload className="mr-2 h-4 w-4" />Import CSV
-          </Button>
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSVUpload} />
+          {/* Import dialog */}
+          <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
+            <DialogTrigger render={<Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+            <DialogContent>
+              <DialogHeader><DialogTitle>Import Attendance from Excel</DialogTitle></DialogHeader>
+              <form onSubmit={handleImport} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="att-file">Excel / CSV file (.xlsx, .xls, .csv)</Label>
+                  <Input
+                    id="att-file"
+                    type="file"
+                    accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                    required
+                  />
+                </div>
+                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">Expected columns:</p>
+                  <div className="space-y-0.5">
+                    <p><span className="font-medium text-foreground">Date</span> — <code>Date</code> or <code>Work Date</code></p>
+                    <p><span className="font-medium text-foreground">Employee</span> — <code>Employee</code> or <code>Name</code></p>
+                    <p><span className="font-medium text-foreground">Schedule</span> — <code>Schedule</code> or <code>Expected In</code> <span className="italic">(optional, defaults to 08:00)</span></p>
+                    <p><span className="font-medium text-foreground">Actual In</span> — <code>Actual In</code> or <code>Time In</code> <span className="italic">(optional)</span></p>
+                    <p><span className="font-medium text-foreground">Actual Out</span> — <code>Actual Out</code> or <code>Time Out</code> <span className="italic">(optional)</span></p>
+                  </div>
+                  <p className="pt-1">Employee must match a name in the system. Existing records for the same employee + date are overwritten.</p>
+                </div>
+                {importError && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    {importError}
+                  </div>
+                )}
+                {importResult && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-2">
+                    <p>
+                      Inserted <strong>{importResult.inserted}</strong> of <strong>{importResult.total}</strong> rows
+                      {importResult.skipped > 0 && <> · skipped <strong>{importResult.skipped}</strong></>}
+                    </p>
+                    {importResult.errors.length > 0 && (
+                      <details>
+                        <summary className="cursor-pointer text-muted-foreground">
+                          View {importResult.errors.length} error{importResult.errors.length === 1 ? "" : "s"}
+                        </summary>
+                        <ul className="mt-2 space-y-1 max-h-40 overflow-auto">
+                          {importResult.errors.map((err, i) => (
+                            <li key={i} className="text-xs text-muted-foreground">
+                              Row {err.row}: {err.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+                <Button type="submit" className="w-full" disabled={!importFile || importing}>
+                  {importing ? "Importing…" : "Import"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger render={<Button><Plus className="mr-2 h-4 w-4" />Log Attendance</Button>} />
@@ -241,20 +323,6 @@ export default function AttendancePage() {
           </Dialog>
         </div>
       </div>
-
-      {csvErrors.length > 0 && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm space-y-1">
-          <p className="flex items-center gap-1.5 font-medium text-destructive">
-            <AlertCircle className="h-4 w-4" /> {csvErrors.length} row(s) could not be imported
-          </p>
-          {csvErrors.map((err, i) => <p key={i} className="text-muted-foreground pl-5">{err}</p>)}
-        </div>
-      )}
-
-      <p className="text-xs text-muted-foreground">
-        CSV columns (case-insensitive): <code>date, employee, schedule, actual_in, actual_out</code>
-        &nbsp;— existing records for the same employee + date will be overwritten.
-      </p>
 
       <Table>
         <TableHeader>
@@ -320,6 +388,16 @@ export default function AttendancePage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background shadow-lg animate-in fade-in-0 slide-in-from-bottom-2"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

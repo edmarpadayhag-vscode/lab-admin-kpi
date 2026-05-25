@@ -59,13 +59,13 @@ export async function importAttendanceCSV(
   const errors: string[] = [];
 
   for (const row of rows) {
-    const employeeId = nameMap.get(row.employee.toLowerCase());
+    // Skip blank rows
+    if (!row.employee || !String(row.employee).trim()) continue;
+    if (!row.date   || !String(row.date).trim())     continue;
+
+    const employeeId = nameMap.get(String(row.employee).trim().toLowerCase());
     if (!employeeId) {
       errors.push(`Employee not found: "${row.employee}"`);
-      continue;
-    }
-    if (!row.date) {
-      errors.push(`Missing date for employee "${row.employee}"`);
       continue;
     }
     await upsertAttendanceLog({

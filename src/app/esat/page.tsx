@@ -7,159 +7,295 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Star } from "lucide-react";
-import { createEsatFeedback, deleteEsatFeedback } from "./actions";
-import type { Employee } from "@/types/employee";
+import { ArrowDown, ArrowUp, ArrowUpDown, Star, Trash2, Upload } from "lucide-react";
+import { deleteEsatFeedback } from "./actions";
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 type Feedback = {
   id: number;
   staffId: number;
   staffName: string;
   score: number;
-  productWorking: boolean;
-  equivalentScore: number | null;
   remarks: string | null;
   submittedAt: string;
 };
 
+type ImportResult = {
+  inserted: number;
+  skipped: number;
+  total: number;
+  errors: { row: number; message: string }[];
+};
+
+type SortKey = "date" | "labAdmin" | "rate" | "remarks";
+type SortDir = "asc" | "desc";
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function StarRating({ score }: { score: number }) {
+  return (
+    <span className="flex items-center gap-0.5">
+      {Array.from({ length: 5 }, (_, i) => (
+        <Star
+          key={i}
+          className={`h-3.5 w-3.5 ${i < score ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40"}`}
+        />
+      ))}
+      <span className="ml-1 text-xs text-muted-foreground">{score}/5</span>
+    </span>
+  );
+}
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey | null; sortDir: SortDir }) {
+  if (sortKey !== col) return <ArrowUpDown className="ml-1 inline h-3.5 w-3.5 opacity-40" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="ml-1 inline h-3.5 w-3.5" />
+    : <ArrowDown className="ml-1 inline h-3.5 w-3.5" />;
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
+
 export default function EsatPage() {
   const [feedback, setFeedback] = useState<Feedback[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [open, setOpen] = useState(false);
-  const [staffId, setStaffId] = useState("");
-  const [productWorking, setProductWorking] = useState("true");
   const [isPending, startTransition] = useTransition();
 
-  async function load() {
-    const [fbRes, empRes] = await Promise.all([
-      fetch("/api/esat").then((r) => r.json()),
-      fetch("/api/employees").then((r) => r.json()),
-    ]);
-    setFeedback(fbRes);
-    setEmployees(empRes.filter((e: Employee) => e.isActive));
-  }
+  // sort
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
+  // import dialog
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // toast
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ── data loading ────────────────────────────────────────────────────────────
+
+  async function load() {
+    const res = await fetch("/api/esat").then((r) => r.json());
+    setFeedback(res);
+  }
   useEffect(() => { load(); }, []);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const get = (name: string) => (form.elements.namedItem(name) as HTMLInputElement).value;
-    startTransition(async () => {
-      await createEsatFeedback({
-        staffId: Number(staffId),
-        score: Number(get("score")),
-        productWorking: productWorking === "true",
-        equivalentScore: get("equivalentScore") ? Number(get("equivalentScore")) : null,
-        remarks: get("remarks"),
-      });
-      setOpen(false);
-      setStaffId("");
-      setProductWorking("true");
-      load();
+  // ── derived: sort ───────────────────────────────────────────────────────────
+
+  const displayed = (() => {
+    if (!sortKey) return feedback;
+    return [...feedback].sort((a, b) => {
+      let va: string | number, vb: string | number;
+      if (sortKey === "date") {
+        va = new Date(a.submittedAt).getTime();
+        vb = new Date(b.submittedAt).getTime();
+      } else if (sortKey === "labAdmin") {
+        va = a.staffName.toLowerCase();
+        vb = b.staffName.toLowerCase();
+      } else if (sortKey === "rate") {
+        va = a.score;
+        vb = b.score;
+      } else {
+        va = (a.remarks ?? "").toLowerCase();
+        vb = (b.remarks ?? "").toLowerCase();
+      }
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
     });
+  })();
+
+  // ── handlers ────────────────────────────────────────────────────────────────
+
+  function toggleSort(col: SortKey) {
+    if (sortKey === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir("asc");
+    }
   }
 
   function handleDelete(id: number) {
     startTransition(async () => {
       await deleteEsatFeedback(id);
-      load();
+      await load();
     });
   }
 
-  function renderStars(score: number) {
-    return Array.from({ length: 5 }, (_, i) => (
-      <Star key={i} className={`inline h-3.5 w-3.5 ${i < score ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
-    ));
+  async function handleImport(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!importFile) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      const res = await fetch("/api/esat/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error ?? "Import failed");
+      } else {
+        setImportResult(data);
+        if (data.inserted > 0) {
+          await load();
+          setToast(`${data.inserted} row${data.inserted === 1 ? "" : "s"} imported`);
+        }
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
   }
+
+  function resetImport() {
+    setImportFile(null);
+    setImportResult(null);
+    setImportError(null);
+  }
+
+  // ── render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col gap-6 p-6">
+
+      {/* ── toolbar ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <SidebarTrigger />
           <h1 className="text-2xl font-bold">ESAT Feedback</h1>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button><Plus className="mr-2 h-4 w-4" />Add Feedback</Button>} />
+
+        <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
+          <DialogTrigger render={<Button><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
           <DialogContent>
-            <DialogHeader><DialogTitle>Add ESAT Feedback</DialogTitle></DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <DialogHeader><DialogTitle>Import ESAT Feedback from Excel</DialogTitle></DialogHeader>
+            <form onSubmit={handleImport} className="space-y-4">
               <div className="space-y-1.5">
-                <Label>Staff Member</Label>
-                <Select value={staffId} onValueChange={(v) => v !== null && setStaffId(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select staff" /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="esat-file">Excel file (.xlsx, .xls, .csv)</Label>
+                <Input
+                  id="esat-file"
+                  type="file"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                  required
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="score">Score (1–5)</Label>
-                  <Input id="score" name="score" type="number" min={1} max={5} required />
+              <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">Expected columns (Microsoft Forms export):</p>
+                <div className="space-y-0.5">
+                  <p><span className="font-medium text-foreground">Date</span> — <code>Start time</code></p>
+                  <p><span className="font-medium text-foreground">Lab Admin</span> — <code>Who assisted you?</code></p>
+                  <p><span className="font-medium text-foreground">Rate</span> — <code>Please rate the assistance provided by the lab admins…</code></p>
+                  <p><span className="font-medium text-foreground">Remarks</span> — <code>What influenced your decision to give this rating?</code></p>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="equivalentScore">Equivalent Score</Label>
-                  <Input id="equivalentScore" name="equivalentScore" type="number" step="0.01" />
+                <p className="pt-1">Other columns are ignored. Lab Admin must match an employee name.</p>
+              </div>
+              {importError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {importError}
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Product Working?</Label>
-                <Select value={productWorking} onValueChange={(v) => v !== null && setProductWorking(v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true">Yes</SelectItem>
-                    <SelectItem value="false">No</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="remarks">Remarks</Label>
-                <Textarea id="remarks" name="remarks" rows={2} />
-              </div>
-              <Button type="submit" className="w-full" disabled={isPending || !staffId}>
-                {isPending ? "Saving…" : "Submit Feedback"}
+              )}
+              {importResult && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-2">
+                  <p>
+                    Inserted <strong>{importResult.inserted}</strong> of <strong>{importResult.total}</strong> rows
+                    {importResult.skipped > 0 && <> · skipped <strong>{importResult.skipped}</strong></>}
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <details>
+                      <summary className="cursor-pointer text-muted-foreground">
+                        View {importResult.errors.length} error{importResult.errors.length === 1 ? "" : "s"}
+                      </summary>
+                      <ul className="mt-2 space-y-1 max-h-40 overflow-auto">
+                        {importResult.errors.map((err, i) => (
+                          <li key={i} className="text-xs text-muted-foreground">
+                            Row {err.row}: {err.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={!importFile || importing}>
+                {importing ? "Importing…" : "Import"}
               </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* ── table ── */}
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Staff</TableHead>
-            <TableHead>Score</TableHead>
-            <TableHead>Product Working</TableHead>
-            <TableHead>Equivalent Score</TableHead>
-            <TableHead>Remarks</TableHead>
-            <TableHead>Submitted</TableHead>
+            <TableHead>
+              <button
+                onClick={() => toggleSort("date")}
+                className="flex items-center font-semibold hover:text-foreground transition-colors"
+              >
+                Date <SortIcon col="date" sortKey={sortKey} sortDir={sortDir} />
+              </button>
+            </TableHead>
+            <TableHead>
+              <button
+                onClick={() => toggleSort("labAdmin")}
+                className="flex items-center font-semibold hover:text-foreground transition-colors"
+              >
+                Lab Admin <SortIcon col="labAdmin" sortKey={sortKey} sortDir={sortDir} />
+              </button>
+            </TableHead>
+            <TableHead>
+              <button
+                onClick={() => toggleSort("rate")}
+                className="flex items-center font-semibold hover:text-foreground transition-colors"
+              >
+                Rate <SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
+              </button>
+            </TableHead>
+            <TableHead>
+              <button
+                onClick={() => toggleSort("remarks")}
+                className="flex items-center font-semibold hover:text-foreground transition-colors"
+              >
+                Remarks <SortIcon col="remarks" sortKey={sortKey} sortDir={sortDir} />
+              </button>
+            </TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {feedback.length === 0 && (
+          {displayed.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                No feedback yet.
+              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                No feedback yet. Import an Excel file to get started.
               </TableCell>
             </TableRow>
           )}
-          {feedback.map((fb) => (
+          {displayed.map((fb) => (
             <TableRow key={fb.id}>
-              <TableCell className="font-medium">{fb.staffName}</TableCell>
-              <TableCell>{renderStars(fb.score)}</TableCell>
-              <TableCell>{fb.productWorking ? "Yes" : "No"}</TableCell>
-              <TableCell>{fb.equivalentScore ?? "—"}</TableCell>
-              <TableCell className="max-w-48 truncate">{fb.remarks ?? "—"}</TableCell>
               <TableCell>{new Date(fb.submittedAt).toLocaleDateString()}</TableCell>
+              <TableCell className="font-medium">{fb.staffName}</TableCell>
+              <TableCell><StarRating score={fb.score} /></TableCell>
+              <TableCell className="max-w-64 truncate">{fb.remarks ?? "—"}</TableCell>
               <TableCell>
-                <Button size="icon" variant="ghost" onClick={() => handleDelete(fb.id)} disabled={isPending}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => handleDelete(fb.id)}
+                  disabled={isPending}
+                  aria-label="Delete"
+                >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </TableCell>
@@ -167,6 +303,16 @@ export default function EsatPage() {
           ))}
         </TableBody>
       </Table>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background shadow-lg animate-in fade-in-0 slide-in-from-bottom-2"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

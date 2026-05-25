@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { esatFeedback, employees } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -10,13 +10,11 @@ export async function GET() {
       staffId: esatFeedback.staffId,
       staffName: employees.name,
       score: esatFeedback.score,
-      productWorking: esatFeedback.productWorking,
-      equivalentScore: esatFeedback.equivalentScore,
       remarks: esatFeedback.remarks,
       submittedAt: esatFeedback.submittedAt,
     })
     .from(esatFeedback)
     .innerJoin(employees, eq(esatFeedback.staffId, employees.id))
-    .orderBy(desc(esatFeedback.submittedAt));
+    .orderBy(asc(esatFeedback.submittedAt), asc(esatFeedback.id));
   return NextResponse.json(rows);
 }
