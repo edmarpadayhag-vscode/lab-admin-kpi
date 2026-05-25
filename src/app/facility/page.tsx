@@ -4,33 +4,44 @@ import { useEffect, useState, useTransition } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2 } from "lucide-react";
-import { createFacilityLog, deleteFacilityLog } from "./actions";
+import { Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { clearAllFacilityLogs, createFacilityLog, deleteFacilityLog, updateFacilityLog } from "./actions";
 import type { Employee } from "@/types/employee";
+
+type ImportResult = {
+  inserted: number;
+  skipped: number;
+  total: number;
+  errors: { row: number; message: string }[];
+};
 
 type Log = {
   id: number;
   date: string;
-  submittedBy: number;
-  submittedByName: string;
+  submittedBy: number | null;
+  submittedByName: string | null;
   timeSubmitted: string | null;
-  personnelPresent: boolean;
+  personnelPresent: string | null;
   status: string;
   remarks: string | null;
-};
-
-type Status = "compliant" | "non_compliant" | "off";
-
-const statusColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  compliant: "default",
-  non_compliant: "destructive",
-  off: "secondary",
+  proofImageUrl: string | null;
+  source: "manual" | "import" | string;
 };
 
 export default function FacilityPage() {
@@ -38,9 +49,23 @@ export default function FacilityPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [open, setOpen] = useState(false);
   const [submittedBy, setSubmittedBy] = useState("");
-  const [status, setStatus] = useState<Status>("compliant");
-  const [personnelPresent, setPersonnelPresent] = useState("true");
+  const [editing, setEditing] = useState<Log | null>(null);
+  const [editSubmittedBy, setEditSubmittedBy] = useState("");
+  const [removeProof, setRemoveProof] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function load() {
     const [logsRes, empRes] = await Promise.all([
@@ -56,21 +81,48 @@ export default function FacilityPage() {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
-    const get = (name: string) => (form.elements.namedItem(name) as HTMLInputElement).value;
+    const fd = new FormData(form);
+    fd.set("submittedBy", submittedBy);
+    setFormError(null);
     startTransition(async () => {
-      await createFacilityLog({
-        date: get("date"),
-        submittedBy: Number(submittedBy),
-        timeSubmitted: get("timeSubmitted"),
-        personnelPresent: personnelPresent === "true",
-        status,
-        remarks: get("remarks"),
-      });
-      setOpen(false);
-      setSubmittedBy("");
-      setStatus("compliant");
-      setPersonnelPresent("true");
-      load();
+      try {
+        await createFacilityLog(fd);
+        form.reset();
+        setOpen(false);
+        setSubmittedBy("");
+        await load();
+        setToast("Entry added");
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Failed to save");
+      }
+    });
+  }
+
+  function openEdit(log: Log) {
+    setEditing(log);
+    setEditSubmittedBy(log.submittedBy ? String(log.submittedBy) : "");
+    setRemoveProof(false);
+    setFormError(null);
+  }
+
+  function handleEdit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!editing) return;
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    fd.set("submittedBy", editSubmittedBy);
+    if (removeProof) fd.set("removeProofImage", "1");
+    setFormError(null);
+    const id = editing.id;
+    startTransition(async () => {
+      try {
+        await updateFacilityLog(id, fd);
+        setEditing(null);
+        await load();
+        setToast("Entry updated");
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Failed to update");
+      }
     });
   }
 
@@ -81,6 +133,44 @@ export default function FacilityPage() {
     });
   }
 
+  function handleClearAll() {
+    startTransition(async () => {
+      await clearAllFacilityLogs();
+      await load();
+      setToast("Success");
+    });
+  }
+
+  async function handleImport(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!importFile) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      const res = await fetch("/api/facility/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error ?? "Import failed");
+      } else {
+        setImportResult(data);
+        load();
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function resetImport() {
+    setImportFile(null);
+    setImportResult(null);
+    setImportError(null);
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
@@ -88,25 +178,101 @@ export default function FacilityPage() {
           <SidebarTrigger />
           <h1 className="text-2xl font-bold">Facility</h1>
         </div>
+        <div className="flex items-center gap-2">
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button variant="outline" disabled={logs.length === 0 || isPending}>
+                <Trash2 className="mr-2 h-4 w-4" />Clear All
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete all facility logs?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete all {logs.length} facility log{logs.length === 1 ? "" : "s"}. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={handleClearAll}>
+                Delete all
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <Dialog
+          open={importOpen}
+          onOpenChange={(o) => {
+            setImportOpen(o);
+            if (!o) resetImport();
+          }}
+        >
+          <DialogTrigger render={<Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+          <DialogContent>
+            <DialogHeader><DialogTitle>Import Facility Logs from Excel</DialogTitle></DialogHeader>
+            <form onSubmit={handleImport} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="file">Excel file (.xlsx, .xls, .csv)</Label>
+                <Input
+                  id="file"
+                  type="file"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                  required
+                />
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">Expected columns (Microsoft Forms export):</p>
+                <p><strong>Column B</strong> — <code>Start time</code> → Date</p>
+                <p><strong>Column H</strong> — <code>Please enter your name</code> → Personnel Present</p>
+                <p>Other columns are ignored. The header row is auto-detected.</p>
+              </div>
+              {importError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {importError}
+                </div>
+              )}
+              {importResult && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-2">
+                  <p>
+                    Inserted <strong>{importResult.inserted}</strong> of <strong>{importResult.total}</strong> rows
+                    {importResult.skipped > 0 && <> · skipped <strong>{importResult.skipped}</strong></>}
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <details>
+                      <summary className="cursor-pointer text-muted-foreground">View {importResult.errors.length} row error(s)</summary>
+                      <ul className="mt-2 space-y-1 max-h-40 overflow-auto">
+                        {importResult.errors.map((err, i) => (
+                          <li key={i} className="text-xs text-muted-foreground">
+                            Row {err.row}: {err.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={!importFile || importing}>
+                {importing ? "Importing…" : "Import"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger render={<Button><Plus className="mr-2 h-4 w-4" />Log Check</Button>} />
           <DialogContent>
             <DialogHeader><DialogTitle>Log Facility Check</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="date">Date</Label>
-                  <Input id="date" name="date" type="date" required />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="timeSubmitted">Time Submitted</Label>
-                  <Input id="timeSubmitted" name="timeSubmitted" type="time" />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="date">Date</Label>
+                <Input id="date" name="date" type="date" required />
               </div>
               <div className="space-y-1.5">
                 <Label>Submitted By</Label>
                 <Select value={submittedBy} onValueChange={(v) => v !== null && setSubmittedBy(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select employee (optional)" /></SelectTrigger>
                   <SelectContent>
                     {employees.map((e) => (
                       <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
@@ -114,50 +280,47 @@ export default function FacilityPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Status</Label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as Status)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="compliant">Compliant</SelectItem>
-                      <SelectItem value="non_compliant">Non-Compliant</SelectItem>
-                      <SelectItem value="off">Off</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Personnel Present?</Label>
-                  <Select value={personnelPresent} onValueChange={(v) => v !== null && setPersonnelPresent(v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="true">Yes</SelectItem>
-                      <SelectItem value="false">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="personnelPresent">Personnel Present</Label>
+                <Input id="personnelPresent" name="personnelPresent" placeholder="Name(s) present" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="proofImage">Proof image (optional)</Label>
+                <Input
+                  id="proofImage"
+                  name="proofImage"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                />
+                <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, or GIF. Max 8 MB.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="remarks">Remarks</Label>
                 <Textarea id="remarks" name="remarks" rows={2} />
               </div>
-              <Button type="submit" className="w-full" disabled={isPending || !submittedBy}>
+              {formError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {formError}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={isPending}>
                 {isPending ? "Saving…" : "Save"}
               </Button>
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
-            <TableHead>Submitted By</TableHead>
             <TableHead>Time</TableHead>
+            <TableHead>Submitted By</TableHead>
             <TableHead>Personnel Present</TableHead>
-            <TableHead>Status</TableHead>
             <TableHead>Remarks</TableHead>
+            <TableHead>Proof</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -172,24 +335,137 @@ export default function FacilityPage() {
           {logs.map((log) => (
             <TableRow key={log.id}>
               <TableCell>{log.date}</TableCell>
-              <TableCell>{log.submittedByName}</TableCell>
-              <TableCell>{log.timeSubmitted ?? "—"}</TableCell>
-              <TableCell>{log.personnelPresent ? "Yes" : "No"}</TableCell>
-              <TableCell>
-                <Badge variant={statusColors[log.status] ?? "outline"}>
-                  {log.status.replace("_", " ")}
-                </Badge>
-              </TableCell>
+              <TableCell>{log.timeSubmitted ? log.timeSubmitted.slice(0, 5) : "—"}</TableCell>
+              <TableCell>{log.submittedByName ?? "—"}</TableCell>
+              <TableCell>{log.personnelPresent ?? "—"}</TableCell>
               <TableCell className="max-w-48 truncate">{log.remarks ?? "—"}</TableCell>
               <TableCell>
-                <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending}>
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                {log.proofImageUrl ? (
+                  <a href={log.proofImageUrl} target="_blank" rel="noopener noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={log.proofImageUrl}
+                      alt="Proof"
+                      className="h-10 w-10 rounded object-cover border"
+                    />
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center justify-end gap-1">
+                  {log.source === "manual" && (
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(log)} disabled={isPending} aria-label="Edit">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending} aria-label="Delete">
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Facility Log</DialogTitle></DialogHeader>
+          {editing && (
+            <form onSubmit={handleEdit} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-date">Date</Label>
+                <Input id="edit-date" name="date" type="date" defaultValue={editing.date} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Submitted By</Label>
+                <Select value={editSubmittedBy} onValueChange={(v) => v !== null && setEditSubmittedBy(v)}>
+                  <SelectTrigger><SelectValue placeholder="Select employee (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    {employees.map((e) => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-personnelPresent">Personnel Present</Label>
+                <Input
+                  id="edit-personnelPresent"
+                  name="personnelPresent"
+                  placeholder="Name(s) present"
+                  defaultValue={editing.personnelPresent ?? ""}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Proof image</Label>
+                {editing.proofImageUrl && !removeProof && (
+                  <div className="flex items-center gap-3 rounded-md border p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={editing.proofImageUrl}
+                      alt="Current proof"
+                      className="h-16 w-16 rounded object-cover border"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRemoveProof(true)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                )}
+                {removeProof && (
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <span>Existing image will be removed on save.</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setRemoveProof(false)}>
+                      Undo
+                    </Button>
+                  </div>
+                )}
+                <Input
+                  id="edit-proofImage"
+                  name="proofImage"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                />
+                <p className="text-xs text-muted-foreground">Upload a new image to replace the current one. Max 8 MB.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-remarks">Remarks</Label>
+                <Textarea
+                  id="edit-remarks"
+                  name="remarks"
+                  rows={2}
+                  defaultValue={editing.remarks ?? ""}
+                />
+              </div>
+              {formError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {formError}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={isPending}>
+                {isPending ? "Saving…" : "Save changes"}
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background shadow-lg animate-in fade-in-0 slide-in-from-bottom-2"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

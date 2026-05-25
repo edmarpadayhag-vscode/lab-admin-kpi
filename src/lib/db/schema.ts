@@ -76,14 +76,16 @@ export const attendanceLogs = pgTable(
 export const facilityLogs = pgTable("facility_logs", {
   id: serial("id").primaryKey(),
   date: date("date").notNull(),
-  submittedBy: integer("submitted_by")
-    .notNull()
-    .references(() => employees.id),
+  submittedBy: integer("submitted_by").references(() => employees.id),
   timeSubmitted: time("time_submitted"),
-  personnelPresent: boolean("personnel_present").notNull().default(true),
+  // Free-text name from "Please enter your name" Excel field, or a manually entered value.
+  personnelPresent: varchar("personnel_present", { length: 255 }),
   status: facilityStatusEnum("status").notNull().default("compliant"),
   remarks: text("remarks"),
   proofImageUrl: text("proof_image_url"),
+  // 'manual' for entries created via the Log Check form; 'import' for Excel-imported rows.
+  // Only 'manual' rows are editable in the UI.
+  source: varchar("source", { length: 16 }).notNull().default("manual"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
