@@ -410,17 +410,12 @@ export default function AttendancePage() {
       </div>
 
       {/* ── Summary widgets ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {/* Total Work Days */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {/* Total Work Days / Hours */}
         <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground leading-tight">Total Work Days</span>
-          <span className="text-2xl font-bold tracking-tight">{totalWorkDays}</span>
-        </div>
-
-        {/* Total Work Hours */}
-        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground leading-tight">Total Work Hours</span>
-          <span className="text-2xl font-bold tracking-tight">{totalWorkDays * 9}<span className="text-sm font-normal text-muted-foreground ml-1">hrs</span></span>
+          <span className="text-xs text-muted-foreground leading-tight">Total Work Days / Hours</span>
+          <span className="text-2xl font-bold tracking-tight">{totalWorkDays}<span className="text-sm font-normal text-muted-foreground ml-1">days</span></span>
+          <span className="text-xs text-muted-foreground">{totalWorkDays * 9} hrs · {totalWorkMin} min</span>
         </div>
 
         {/* Total Absences */}
