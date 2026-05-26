@@ -33,7 +33,27 @@ function buildRow(input: LogInput) {
 }
 
 export async function upsertAttendanceLog(input: LogInput) {
-  const row = buildRow(input);
+  const baseRow = buildRow(input);
+
+  // Half-day types need expected times from the employee's regular schedule
+  // because isNonWorkSchedule() returns true for them and buildRow would leave
+  // expectedTimeIn/Out as null.
+  let row = baseRow;
+  if (input.schedule === "Half Day Absent" || input.schedule === "Half Day PTO") {
+    const [emp] = await db
+      .select({ expectedTimeIn: employees.expectedTimeIn })
+      .from(employees)
+      .where(eq(employees.id, input.employeeId));
+    const empSchedule = emp?.expectedTimeIn
+      ? String(emp.expectedTimeIn).slice(0, 5) // "08:00:00" → "08:00"
+      : "08:00";
+    row = {
+      ...baseRow,
+      expectedTimeIn:  empSchedule,
+      expectedTimeOut: expectedOut(empSchedule),
+    };
+  }
+
   await db
     .insert(attendanceLogs)
     .values(row)
