@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { facilityLogs } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -114,9 +114,33 @@ export async function deleteFacilityLog(id: number) {
   revalidatePath("/facility");
 }
 
-export async function clearAllFacilityLogs() {
+export async function markDayNoWork(date: string) {
+  const existing = await db
+    .select({ id: facilityLogs.id })
+    .from(facilityLogs)
+    .where(and(eq(facilityLogs.date, date), eq(facilityLogs.source, "no_work")))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(facilityLogs).values({ date, source: "no_work", status: "off" });
+  }
+  revalidatePath("/facility");
+}
+
+export async function unmarkDayNoWork(date: string) {
+  await db
+    .delete(facilityLogs)
+    .where(and(eq(facilityLogs.date, date), eq(facilityLogs.source, "no_work")));
+  revalidatePath("/facility");
+}
+
+export async function clearAllFacilityLogs(month: number, year: number) {
+  const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDayNum = new Date(year, month, 0).getDate();
+  const lastDay  = `${year}-${String(month).padStart(2, "0")}-${String(lastDayNum).padStart(2, "0")}`;
+
   const result = await db
     .delete(facilityLogs)
+    .where(and(gte(facilityLogs.date, firstDay), lte(facilityLogs.date, lastDay)))
     .returning({ id: facilityLogs.id, proofImageUrl: facilityLogs.proofImageUrl });
   await Promise.all(result.map((r) => deleteProofImage(r.proofImageUrl)));
   revalidatePath("/facility");

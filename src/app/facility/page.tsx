@@ -20,9 +20,18 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, Plus, Trash2, Upload } from "lucide-react";
-import { clearAllFacilityLogs, createFacilityLog, deleteFacilityLog, updateFacilityLog } from "./actions";
-import type { Employee } from "@/types/employee";
+import { CalendarOff, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { clearAllFacilityLogs, createFacilityLog, deleteFacilityLog, markDayNoWork, unmarkDayNoWork, updateFacilityLog } from "./actions";
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const DOW_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS  = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 
 type ImportResult = {
   inserted: number;
@@ -46,11 +55,50 @@ type Log = {
 
 export default function FacilityPage() {
   const [logs, setLogs] = useState<Log[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [open, setOpen] = useState(false);
-  const [submittedBy, setSubmittedBy] = useState("");
+  const [prefillDate, setPrefillDate] = useState("");
   const [editing, setEditing] = useState<Log | null>(null);
-  const [editSubmittedBy, setEditSubmittedBy] = useState("");
+
+  // Month / year filter
+  const _now = new Date();
+  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
+  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+
+  // ── Derived month stats ────────────────────────────────────────────────────
+  const selY = parseInt(filterYear)  || _now.getFullYear();
+  const selM = parseInt(filterMonth) || (_now.getMonth() + 1);
+  const daysInMonth = new Date(selY, selM, 0).getDate();
+
+  // All days in the selected month
+  const allMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1;
+    const dateStr = `${selY}-${String(selM).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dow = new Date(selY, selM - 1, day).getDay(); // 0=Sun … 6=Sat
+    return { date: dateStr, dow, isWeekend: dow === 0 || dow === 6 };
+  });
+
+  // Logs for the selected month
+  const monthPrefix = `${selY}-${String(selM).padStart(2, "0")}`;
+  const monthLogs   = logs.filter(l => l.date.startsWith(monthPrefix));
+
+  // Separate no-work markers from real log entries
+  const noWorkDates = new Set<string>();
+  const logsByDate  = new Map<string, Log[]>();
+  for (const log of monthLogs) {
+    if (log.source === "no_work") {
+      noWorkDates.add(log.date);
+    } else {
+      if (!logsByDate.has(log.date)) logsByDate.set(log.date, []);
+      logsByDate.get(log.date)!.push(log);
+    }
+  }
+
+  // Widget values — no-work days are excluded from the count entirely
+  const weekdays          = allMonthDays.filter(d => !d.isWeekend);
+  const countableWeekdays = weekdays.filter(d => !noWorkDates.has(d.date));
+  const numberOfDays  = countableWeekdays.length;
+  const missedDays    = countableWeekdays.filter(d => !logsByDate.has(d.date)).length;
+  const facilityRate  = numberOfDays > 0 ? (numberOfDays - missedDays) / numberOfDays : 0;
   const [removeProof, setRemoveProof] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -68,12 +116,8 @@ export default function FacilityPage() {
   }, [toast]);
 
   async function load() {
-    const [logsRes, empRes] = await Promise.all([
-      fetch("/api/facility").then((r) => r.json()),
-      fetch("/api/employees").then((r) => r.json()),
-    ]);
+    const logsRes = await fetch("/api/facility").then((r) => r.json());
     setLogs(logsRes);
-    setEmployees(empRes.filter((e: Employee) => e.isActive));
   }
 
   useEffect(() => { load(); }, []);
@@ -82,14 +126,12 @@ export default function FacilityPage() {
     e.preventDefault();
     const form = e.currentTarget;
     const fd = new FormData(form);
-    fd.set("submittedBy", submittedBy);
     setFormError(null);
     startTransition(async () => {
       try {
         await createFacilityLog(fd);
         form.reset();
         setOpen(false);
-        setSubmittedBy("");
         await load();
         setToast("Entry added");
       } catch (err) {
@@ -100,7 +142,6 @@ export default function FacilityPage() {
 
   function openEdit(log: Log) {
     setEditing(log);
-    setEditSubmittedBy(log.submittedBy ? String(log.submittedBy) : "");
     setRemoveProof(false);
     setFormError(null);
   }
@@ -110,7 +151,6 @@ export default function FacilityPage() {
     if (!editing) return;
     const form = e.currentTarget;
     const fd = new FormData(form);
-    fd.set("submittedBy", editSubmittedBy);
     if (removeProof) fd.set("removeProofImage", "1");
     setFormError(null);
     const id = editing.id;
@@ -135,7 +175,7 @@ export default function FacilityPage() {
 
   function handleClearAll() {
     startTransition(async () => {
-      await clearAllFacilityLogs();
+      await clearAllFacilityLogs(selM, selY);
       await load();
       setToast("Success");
     });
@@ -179,19 +219,20 @@ export default function FacilityPage() {
           <h1 className="text-2xl font-bold">Facility</h1>
         </div>
         <div className="flex items-center gap-2">
+
         <AlertDialog>
           <AlertDialogTrigger
             render={
-              <Button variant="outline" disabled={logs.length === 0 || isPending}>
+              <Button variant="outline" disabled={monthLogs.length === 0 || isPending}>
                 <Trash2 className="mr-2 h-4 w-4" />Clear All
               </Button>
             }
           />
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete all facility logs?</AlertDialogTitle>
+              <AlertDialogTitle>Clear {MONTH_NAMES[selM - 1]} {selY} facility logs?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete all {logs.length} facility log{logs.length === 1 ? "" : "s"}. This action cannot be undone.
+                This will permanently delete all {monthLogs.length} facility log{monthLogs.length === 1 ? "" : "s"} for {MONTH_NAMES[selM - 1]} {selY}. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -260,25 +301,23 @@ export default function FacilityPage() {
             </form>
           </DialogContent>
         </Dialog>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button><Plus className="mr-2 h-4 w-4" />Log Check</Button>} />
+        <Button onClick={() => { setPrefillDate(""); setFormError(null); setOpen(true); }}>
+          <Plus className="mr-2 h-4 w-4" />Log Check
+        </Button>
+        <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setPrefillDate(""); }}>
           <DialogContent>
             <DialogHeader><DialogTitle>Log Facility Check</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date</Label>
-                <Input id="date" name="date" type="date" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Submitted By</Label>
-                <Select value={submittedBy} onValueChange={(v) => v !== null && setSubmittedBy(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select employee (optional)" /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  id="date"
+                  name="date"
+                  type="date"
+                  key={prefillDate}
+                  defaultValue={prefillDate}
+                  required
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="personnelPresent">Personnel Present</Label>
@@ -312,12 +351,82 @@ export default function FacilityPage() {
         </div>
       </div>
 
+      {/* ── Month / year selector ─────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label>Month</Label>
+          <Select value={filterMonth} onValueChange={(v) => v !== null && setFilterMonth(v)}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MONTH_NAMES.map((name, i) => (
+                <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Year</Label>
+          <Select value={filterYear} onValueChange={(v) => v !== null && setFilterYear(v)}>
+            <SelectTrigger className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {YEAR_OPTIONS.map(y => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* ── Summary widgets ──────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Number of Days */}
+        <div className="rounded-lg border bg-card px-5 py-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+            Number of Days
+          </span>
+          <span className="text-3xl font-bold">{numberOfDays}</span>
+          <span className="text-xs text-muted-foreground">
+            Weekdays in {MONTH_NAMES[selM - 1]} {selY}
+          </span>
+        </div>
+
+        {/* Missed Days */}
+        <div className={`rounded-lg border px-5 py-4 flex flex-col gap-1 ${missedDays > 0 ? "bg-red-50 border-red-200" : "bg-card"}`}>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+            Missed Days
+          </span>
+          <span className={`text-3xl font-bold ${missedDays > 0 ? "text-red-600" : ""}`}>
+            {missedDays}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Weekdays with no entry
+          </span>
+        </div>
+
+        {/* Facility compliance rate */}
+        <div className={`rounded-lg border px-5 py-4 flex flex-col gap-1 ${facilityRate < 1 ? "bg-orange-50 border-orange-200" : "bg-card"}`}>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+            Facility
+          </span>
+          <span className={`text-3xl font-bold ${facilityRate < 1 ? "text-orange-600" : "text-green-600"}`}>
+            {(facilityRate * 100).toFixed(1)}%
+          </span>
+          <span className="text-xs text-muted-foreground">
+            (Number of Days − Missed Days) / Number of Days
+          </span>
+        </div>
+      </div>
+
+      {/* ── Full-month table ──────────────────────────────────────────────────── */}
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
             <TableHead>Time</TableHead>
-            <TableHead>Submitted By</TableHead>
             <TableHead>Personnel Present</TableHead>
             <TableHead>Remarks</TableHead>
             <TableHead>Proof</TableHead>
@@ -325,48 +434,144 @@ export default function FacilityPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {logs.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                No facility logs yet.
-              </TableCell>
-            </TableRow>
-          )}
-          {logs.map((log) => (
-            <TableRow key={log.id}>
-              <TableCell>{log.date}</TableCell>
-              <TableCell>{log.timeSubmitted ? log.timeSubmitted.slice(0, 5) : "—"}</TableCell>
-              <TableCell>{log.submittedByName ?? "—"}</TableCell>
-              <TableCell>{log.personnelPresent ?? "—"}</TableCell>
-              <TableCell className="max-w-48 truncate">{log.remarks ?? "—"}</TableCell>
-              <TableCell>
-                {log.proofImageUrl ? (
-                  <a href={log.proofImageUrl} target="_blank" rel="noopener noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={log.proofImageUrl}
-                      alt="Proof"
-                      className="h-10 w-10 rounded object-cover border"
-                    />
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center justify-end gap-1">
-                  {log.source === "manual" && (
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(log)} disabled={isPending} aria-label="Edit">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+          {allMonthDays.map(({ date, dow, isWeekend }) => {
+            const dayLabel = DOW_NAMES[dow];
+            const dayLogs  = logsByDate.get(date) ?? [];
+
+            // Weekend with no entry — greyed placeholder (not counted in widgets)
+            if (isWeekend && dayLogs.length === 0) {
+              return (
+                <TableRow key={date} className="bg-muted/20">
+                  <TableCell className="text-muted-foreground">
+                    <span className="font-medium">{date}</span>
+                    <span className="ml-2 text-xs">{dayLabel}</span>
+                  </TableCell>
+                  <TableCell colSpan={5} className="text-xs text-muted-foreground italic">
+                    Weekend
+                  </TableCell>
+                </TableRow>
+              );
+            }
+
+            // Weekday tagged as No Work — greyed, not counted in widgets
+            if (noWorkDates.has(date) && dayLogs.length === 0) {
+              return (
+                <TableRow key={date} className="bg-muted/30">
+                  <TableCell className="text-muted-foreground">
+                    <span className="font-medium">{date}</span>
+                    <span className="ml-2 text-xs">{dayLabel}</span>
+                  </TableCell>
+                  <TableCell colSpan={4} className="text-xs text-muted-foreground italic">
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarOff className="h-3 w-3" />
+                      No Work
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-muted-foreground"
+                        disabled={isPending}
+                        onClick={() => startTransition(async () => {
+                          await unmarkDayNoWork(date);
+                          await load();
+                        })}
+                      >
+                        Undo
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            }
+
+            // Weekday with no entry — highlighted as missed
+            if (dayLogs.length === 0) {
+              return (
+                <TableRow key={date} className="bg-red-50">
+                  <TableCell>
+                    <span className="font-medium">{date}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{dayLabel}</span>
+                  </TableCell>
+                  <TableCell colSpan={4} className="text-xs text-red-500 italic">
+                    No entry
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={isPending}
+                        aria-label="Add entry"
+                        onClick={() => {
+                          setPrefillDate(date);
+                          setFormError(null);
+                          setOpen(true);
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-muted-foreground"
+                        disabled={isPending}
+                        aria-label="Mark as No Work"
+                        onClick={() => startTransition(async () => {
+                          await markDayNoWork(date);
+                          await load();
+                        })}
+                      >
+                        <CalendarOff className="h-3.5 w-3.5 mr-1" />
+                        No Work
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            }
+
+            // Weekday with one or more log entries
+            return dayLogs.map((log) => (
+              <TableRow key={log.id}>
+                <TableCell>
+                  <span className="font-medium">{log.date}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{dayLabel}</span>
+                </TableCell>
+                <TableCell>{log.timeSubmitted ? log.timeSubmitted.slice(0, 5) : "—"}</TableCell>
+                <TableCell>{log.personnelPresent ?? "—"}</TableCell>
+                <TableCell className="max-w-48 truncate">{log.remarks ?? "—"}</TableCell>
+                <TableCell>
+                  {log.proofImageUrl ? (
+                    <a href={log.proofImageUrl} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={log.proofImageUrl}
+                        alt="Proof"
+                        className="h-10 w-10 rounded object-cover border"
+                      />
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
                   )}
-                  <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending} aria-label="Delete">
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    {log.source === "manual" && (
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(log)} disabled={isPending} aria-label="Edit">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending} aria-label="Delete">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ));
+          })}
         </TableBody>
       </Table>
 
@@ -378,17 +583,6 @@ export default function FacilityPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="edit-date">Date</Label>
                 <Input id="edit-date" name="date" type="date" defaultValue={editing.date} required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Submitted By</Label>
-                <Select value={editSubmittedBy} onValueChange={(v) => v !== null && setEditSubmittedBy(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select employee (optional)" /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-personnelPresent">Personnel Present</Label>
