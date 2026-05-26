@@ -25,6 +25,14 @@ function isBlankTime(t: string | null | undefined): boolean {
   return !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
 }
 
+/** Parse "HH:MM" or "HH:MM:SS" → total minutes, or null if unparseable. */
+function toMin(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
 type Log = {
   id: number;
   workDate: string;
@@ -263,13 +271,6 @@ export default function AttendancePage() {
   }
 
   // ── Summary metrics ──────────────────────────────────────────────────────────
-  // Helper: parse "HH:MM" or "HH:MM:SS" → total minutes
-  const toMin = (t: string | null | undefined): number | null => {
-    if (!t) return null;
-    const [h, m] = t.split(":").map(Number);
-    return h * 60 + m;
-  };
-
   let totalWorkDays = 0;
   let totalWorkMin  = 0;   // accumulated incrementally (half-day PTO contributes partial)
   let totalAbsences = 0;
@@ -281,7 +282,8 @@ export default function AttendancePage() {
     const dow = new Date(y, mo - 1, d).getDay();
     const isRestDay =
       log.schedule !== "PTO" && log.schedule !== "SL" &&
-      log.schedule !== "H-OFF" && log.schedule !== "Half Day Absent" && log.schedule !== "Half Day PTO" &&
+      log.schedule !== "H-OFF" && log.schedule !== "1stHalf Absent" &&
+      log.schedule !== "2ndHalf Absent" && log.schedule !== "Half Day PTO" &&
       ((log.restDay1 != null && dow === log.restDay1) ||
        (log.restDay2 != null && dow === log.restDay2));
 
@@ -293,10 +295,22 @@ export default function AttendancePage() {
 
     totalWorkDays++;
 
-    // ── Half Day Absent: full expected day, undertime counts ─────────────────
-    if (log.schedule === "Half Day Absent") {
+    // ── 1stHalf Absent: came in late; undertime = Expected Out − Actual In ───
+    if (log.schedule === "1stHalf Absent") {
       totalWorkMin += 9 * 60;
-      const ut = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
+      const expOut = toMin(log.expectedTimeOut);
+      const actIn  = toMin(log.actualTimeIn);
+      const ut = (expOut !== null && actIn !== null) ? Math.max(0, expOut - actIn) : 0;
+      if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
+      continue;
+    }
+
+    // ── 2ndHalf Absent: left early; undertime = Actual Out − Expected In ─────
+    if (log.schedule === "2ndHalf Absent") {
+      totalWorkMin += 9 * 60;
+      const actOut = toMin(log.actualTimeOut);
+      const expIn  = toMin(log.expectedTimeIn);
+      const ut = (actOut !== null && expIn !== null) ? Math.max(0, actOut - expIn) : 0;
       if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
       continue;
     }
@@ -498,19 +512,20 @@ export default function AttendancePage() {
             const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const [y, mo, d] = log.workDate.split("-").map(Number);
             const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
-            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" && log.schedule !== "Half Day Absent" && log.schedule !== "Half Day PTO" &&
+            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF"
+              && log.schedule !== "1stHalf Absent" && log.schedule !== "2ndHalf Absent" && log.schedule !== "Half Day PTO" &&
               ((log.restDay1 != null && dow === log.restDay1) ||
                (log.restDay2 != null && dow === log.restDay2));
-            const isPTO        = log.schedule === "PTO";
-            const isSL         = log.schedule === "SL";
-            const isOff        = log.schedule === "OFF";
-            const isHOff       = log.schedule === "H-OFF";
-            const isHalfAbsent = log.schedule === "Half Day Absent";
-            const isHalfPTO    = log.schedule === "Half Day PTO";
-            // isNonWork: fully non-working days (no expected times, no late/undertime)
-            // Half-day types are excluded — they have expected times and partial computation
-            const isNonWork   = isPTO || isSL || isRestDay || isOff || isHOff;
-            const isHalfDay   = isHalfAbsent || isHalfPTO; // partial-day flag for styling
+            const isPTO           = log.schedule === "PTO";
+            const isSL            = log.schedule === "SL";
+            const isOff           = log.schedule === "OFF";
+            const isHOff          = log.schedule === "H-OFF";
+            const is1stHalfAbsent = log.schedule === "1stHalf Absent";
+            const is2ndHalfAbsent = log.schedule === "2ndHalf Absent";
+            const isHalfPTO       = log.schedule === "Half Day PTO";
+            // isNonWork: fully non-working days — half-day types excluded (they store expected times)
+            const isNonWork  = isPTO || isSL || isRestDay || isOff || isHOff;
+            const isHalfDay  = is1stHalfAbsent || is2ndHalfAbsent || isHalfPTO;
 
             // Absent = valid full work day but no actual times recorded
             const noActualIn  = isBlankTime(log.actualTimeIn);
@@ -524,8 +539,13 @@ export default function AttendancePage() {
               ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
               : isHOff
               ? <Badge variant="outline" className="text-green-600 border-green-400">H-OFF</Badge>
-              : isHalfAbsent
-              ? <Badge variant="outline" className="text-orange-600 border-orange-400">Half Day Absent</Badge>
+              : is1stHalfAbsent
+              ? <Badge variant="outline" className="text-orange-600 border-orange-400">1stHalf Absent</Badge>
+              : is2ndHalfAbsent
+              ? <div className="flex flex-col gap-0.5">
+                  <Badge variant="outline" className="text-orange-600 border-orange-400 w-fit">2ndHalf Absent</Badge>
+                  <span className="text-xs text-muted-foreground">{log.expectedTimeIn ?? "—"}</span>
+                </div>
               : isHalfPTO
               ? <Badge variant="outline" className="text-purple-600 border-purple-400">Half Day PTO</Badge>
               : isRestDay
@@ -552,8 +572,22 @@ export default function AttendancePage() {
               </TableCell>
               <TableCell>
                 {(() => {
-                  // Half Day PTO: the employee is on authorised leave for part of the day — no undertime
-                  if (isNonWork || isAbsent || isHalfPTO || noActualOut) return "—";
+                  if (isNonWork || isAbsent || isHalfPTO) return "—";
+                  // 1stHalf Absent: came in late — undertime = Expected Out − Actual In
+                  if (is1stHalfAbsent) {
+                    const expOut = toMin(log.expectedTimeOut);
+                    const actIn  = toMin(log.actualTimeIn);
+                    const ut = (expOut !== null && actIn !== null) ? Math.max(0, expOut - actIn) : 0;
+                    return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
+                  }
+                  // 2ndHalf Absent: left early — undertime = Actual Out − Expected In
+                  if (is2ndHalfAbsent) {
+                    const actOut = toMin(log.actualTimeOut);
+                    const expIn  = toMin(log.expectedTimeIn);
+                    const ut = (actOut !== null && expIn !== null) ? Math.max(0, actOut - expIn) : 0;
+                    return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
+                  }
+                  if (noActualOut) return "—";
                   const ut = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
                   return ut > 0
                     ? <span className="text-destructive font-medium">{ut}</span>

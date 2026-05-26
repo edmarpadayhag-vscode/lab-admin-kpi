@@ -39,7 +39,7 @@ export async function upsertAttendanceLog(input: LogInput) {
   // because isNonWorkSchedule() returns true for them and buildRow would leave
   // expectedTimeIn/Out as null.
   let row = baseRow;
-  if (input.schedule === "Half Day Absent" || input.schedule === "Half Day PTO") {
+  if (input.schedule === "1stHalf Absent" || input.schedule === "2ndHalf Absent" || input.schedule === "Half Day PTO") {
     const [emp] = await db
       .select({ expectedTimeIn: employees.expectedTimeIn })
       .from(employees)
