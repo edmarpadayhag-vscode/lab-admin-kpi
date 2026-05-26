@@ -33,6 +33,20 @@ function toMin(t: string | null | undefined): number | null {
   return h * 60 + m;
 }
 
+/**
+ * Minutes elapsed from `fromTime` to `toTime` (both "HH:MM" or "HH:MM:SS").
+ * Handles cross-midnight automatically: if the raw difference is negative,
+ * adds 1440 (one day) — e.g. from 22:59 to 08:00 → 541 min, not −899.
+ * Returns null if either value is unparseable.
+ */
+function minutesDiff(fromTime: string | null | undefined, toTime: string | null | undefined): number | null {
+  const from = toMin(fromTime);
+  const to   = toMin(toTime);
+  if (from === null || to === null) return null;
+  const diff = to - from;
+  return diff < 0 ? diff + 1440 : diff;
+}
+
 type Log = {
   id: number;
   workDate: string;
@@ -298,9 +312,7 @@ export default function AttendancePage() {
     // ── 1stHalf Absent: came in late; undertime = Expected Out − Actual In ───
     if (log.schedule === "1stHalf Absent") {
       totalWorkMin += 9 * 60;
-      const expOut = toMin(log.expectedTimeOut);
-      const actIn  = toMin(log.actualTimeIn);
-      const ut = (expOut !== null && actIn !== null) ? Math.max(0, expOut - actIn) : 0;
+      const ut = minutesDiff(log.actualTimeIn, log.expectedTimeOut) ?? 0;
       if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
       continue;
     }
@@ -308,9 +320,7 @@ export default function AttendancePage() {
     // ── 2ndHalf Absent: left early; undertime = Actual Out − Expected In ─────
     if (log.schedule === "2ndHalf Absent") {
       totalWorkMin += 9 * 60;
-      const actOut = toMin(log.actualTimeOut);
-      const expIn  = toMin(log.expectedTimeIn);
-      const ut = (actOut !== null && expIn !== null) ? Math.max(0, actOut - expIn) : 0;
+      const ut = minutesDiff(log.expectedTimeIn, log.actualTimeOut) ?? 0;
       if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
       continue;
     }
@@ -575,16 +585,12 @@ export default function AttendancePage() {
                   if (isNonWork || isAbsent || isHalfPTO) return "—";
                   // 1stHalf Absent: came in late — undertime = Expected Out − Actual In
                   if (is1stHalfAbsent) {
-                    const expOut = toMin(log.expectedTimeOut);
-                    const actIn  = toMin(log.actualTimeIn);
-                    const ut = (expOut !== null && actIn !== null) ? Math.max(0, expOut - actIn) : 0;
+                    const ut = minutesDiff(log.actualTimeIn, log.expectedTimeOut) ?? 0;
                     return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
                   }
                   // 2ndHalf Absent: left early — undertime = Actual Out − Expected In
                   if (is2ndHalfAbsent) {
-                    const actOut = toMin(log.actualTimeOut);
-                    const expIn  = toMin(log.expectedTimeIn);
-                    const ut = (actOut !== null && expIn !== null) ? Math.max(0, actOut - expIn) : 0;
+                    const ut = minutesDiff(log.expectedTimeIn, log.actualTimeOut) ?? 0;
                     return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
                   }
                   if (noActualOut) return "—";
