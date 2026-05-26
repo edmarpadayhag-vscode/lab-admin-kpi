@@ -59,8 +59,8 @@ export const attendanceLogs = pgTable(
       .notNull()
       .references(() => employees.id),
     workDate: date("work_date").notNull(),
-    // "HH:MM" or "OFF". Stored as varchar so "OFF" is a valid value.
-    schedule: varchar("schedule", { length: 10 }).notNull().default("08:00"),
+    // "HH:MM", "OFF", "PTO", "SL", "H-OFF", "Half Day Absent", "Half Day PTO", etc.
+    schedule: varchar("schedule", { length: 20 }).notNull().default("08:00"),
     // null when schedule = "OFF"
     expectedTimeIn: time("expected_time_in"),
     // expectedTimeIn + 9 hours, null when OFF
