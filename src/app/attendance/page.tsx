@@ -391,19 +391,22 @@ export default function AttendancePage() {
             // Determine row status (explicit schedule beats rest-day detection)
             const [y, mo, d] = log.workDate.split("-").map(Number);
             const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
-            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" &&
+            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" &&
               ((log.restDay1 != null && dow === log.restDay1) ||
                (log.restDay2 != null && dow === log.restDay2));
-            const isPTO = log.schedule === "PTO";
-            const isSL  = log.schedule === "SL";
-            const isOff = log.schedule === "OFF";
-            const isNonWork = isPTO || isSL || isRestDay || isOff;
+            const isPTO  = log.schedule === "PTO";
+            const isSL   = log.schedule === "SL";
+            const isOff  = log.schedule === "OFF";
+            const isHOff = log.schedule === "H-OFF";
+            const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
 
             // Expected In cell content
             const expectedInCell = isPTO
               ? <Badge variant="outline" className="text-blue-600 border-blue-400">PTO</Badge>
               : isSL
               ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
+              : isHOff
+              ? <Badge variant="outline" className="text-green-600 border-green-400">H-OFF</Badge>
               : isRestDay
               ? <Badge variant="secondary">Rest Day</Badge>
               : isOff ? "OFF"

@@ -1,5 +1,5 @@
 /** Special non-time schedule values. */
-export const SPECIAL_SCHEDULES = ["PTO", "SL", "OFF"] as const;
+export const SPECIAL_SCHEDULES = ["PTO", "SL", "OFF", "H-OFF"] as const;
 
 /** All schedule options: special statuses first, then 30-min time slots 00:00–23:30. */
 export const SCHEDULE_OPTIONS: string[] = [...SPECIAL_SCHEDULES];
@@ -13,7 +13,7 @@ for (let h = 0; h < 24; h++) {
 
 /** Returns true for schedules that carry no expected-time meaning. */
 export function isNonWorkSchedule(schedule: string): boolean {
-  return schedule === "OFF" || schedule === "PTO" || schedule === "SL";
+  return schedule === "OFF" || schedule === "PTO" || schedule === "SL" || schedule === "H-OFF";
 }
 
 /** Add hours to "HH:MM", returns "HH:MM". */
