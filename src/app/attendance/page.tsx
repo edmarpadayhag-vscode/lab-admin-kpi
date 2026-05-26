@@ -401,9 +401,9 @@ export default function AttendancePage() {
             const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
 
             // Absent = valid work day but no actual times recorded
-            // "blank" covers: null, "", "0", "0:00", "00:00"
+            // "blank" covers: null, "", "0", "0:00", "00:00", "00:00:00", "0:00:00"
             const isBlankTime = (t: string | null): boolean =>
-              !t || t.trim() === "" || t === "0" || t === "0:00" || t === "00:00";
+              !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
             const noActualIn  = isBlankTime(log.actualTimeIn);
             const noActualOut = isBlankTime(log.actualTimeOut);
             const isAbsent    = !isNonWork && noActualIn && noActualOut;
