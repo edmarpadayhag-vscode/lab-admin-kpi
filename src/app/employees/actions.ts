@@ -11,6 +11,8 @@ export async function createEmployee(data: {
   role: "employee" | "manager" | "admin";
   department: string;
   expectedTimeIn: string;
+  restDay1: number | null;
+  restDay2: number | null;
 }) {
   await db.insert(employees).values(data);
   revalidatePath("/employees");
@@ -24,6 +26,8 @@ export async function updateEmployee(
     role: "employee" | "manager" | "admin";
     department: string;
     expectedTimeIn: string;
+    restDay1: number | null;
+    restDay2: number | null;
   }
 ) {
   await db.update(employees).set(data).where(eq(employees.id, id));

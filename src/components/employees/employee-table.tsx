@@ -64,6 +64,7 @@ export function EmployeeTable({ employees }: Props) {
             <TableHead>Role</TableHead>
             <TableHead>Department</TableHead>
             <TableHead>Expected In</TableHead>
+            <TableHead>Rest Days</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -71,7 +72,7 @@ export function EmployeeTable({ employees }: Props) {
         <TableBody>
           {employees.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                 No employees yet. Add your first team member.
               </TableCell>
             </TableRow>
@@ -83,6 +84,12 @@ export function EmployeeTable({ employees }: Props) {
               <TableCell className="capitalize">{emp.role}</TableCell>
               <TableCell>{emp.department ?? "—"}</TableCell>
               <TableCell>{emp.expectedTimeIn}</TableCell>
+              <TableCell>
+                {[emp.restDay1, emp.restDay2]
+                  .filter((d) => d != null)
+                  .map((d) => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d!])
+                  .join(", ") || "—"}
+              </TableCell>
               <TableCell>
                 <Badge variant={emp.isActive ? "default" : "secondary"}>
                   {emp.isActive ? "Active" : "Inactive"}

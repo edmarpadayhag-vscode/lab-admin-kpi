@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { attendanceLogs, employees } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { calcLateMinutes, expectedOut } from "@/lib/attendance-utils";
+import { calcLateMinutes, expectedOut, isNonWorkSchedule } from "@/lib/attendance-utils";
 
 type LogInput = {
   employeeId: number;
@@ -16,14 +16,16 @@ type LogInput = {
 };
 
 function buildRow(input: LogInput) {
-  const isOff = input.schedule === "OFF";
+  const nonWork = isNonWorkSchedule(input.schedule);
   return {
     employeeId: input.employeeId,
     workDate: input.workDate,
     schedule: input.schedule,
-    expectedTimeIn: isOff ? null : input.schedule,
-    expectedTimeOut: isOff ? null : expectedOut(input.schedule),
-    actualTimeIn: input.actualTimeIn || null,
+    expectedTimeIn:  nonWork ? null : input.schedule,
+    expectedTimeOut: nonWork ? null : expectedOut(input.schedule),
+    // Preserve actual times even for PTO/SL so they can be restored if the
+    // user switches back to a regular schedule.
+    actualTimeIn:  input.actualTimeIn  || null,
     actualTimeOut: input.actualTimeOut || null,
     lateMinutes: calcLateMinutes(input.schedule, input.actualTimeIn),
     remarks: input.remarks || null,
@@ -84,5 +86,10 @@ export async function importAttendanceCSV(
 
 export async function deleteAttendanceLog(id: number) {
   await db.delete(attendanceLogs).where(eq(attendanceLogs.id, id));
+  revalidatePath("/attendance");
+}
+
+export async function clearAllAttendanceLogs() {
+  await db.delete(attendanceLogs);
   revalidatePath("/attendance");
 }

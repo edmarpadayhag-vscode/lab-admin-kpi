@@ -1,0 +1,10 @@
+
+> kpi-portal@0.1.0 dev
+> next dev -p 4000 --port 4000
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:4000
+- Network:       http://172.27.208.1:4000
+- Environments: .env.local
+✓ Ready in 1425ms
+

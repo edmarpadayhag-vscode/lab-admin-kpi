@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { calcLateMinutes, expectedOut } from "@/lib/attendance-utils";
 
 // ─── Header aliases ────────────────────────────────────────────────────────────
-type RowKey = "date" | "employee" | "schedule" | "actualIn" | "actualOut";
+type RowKey = "date" | "employee" | "firstName" | "lastName" | "schedule" | "actualIn" | "actualOut";
 
 const HEADER_ALIASES: [pattern: string, field: RowKey][] = [
   // ── date ──────────────────────────────────────────────────────────────────
@@ -14,10 +14,24 @@ const HEADER_ALIASES: [pattern: string, field: RowKey][] = [
   ["work_date",         "date"],
   ["start time",        "date"],
   ["day",               "date"],
-  // ── employee ──────────────────────────────────────────────────────────────
+  // ── split first / last name ───────────────────────────────────────────────
+  ["first",             "firstName"],
+  ["first name",        "firstName"],
+  ["first_name",        "firstName"],
+  ["given name",        "firstName"],
+  ["last",              "lastName"],
+  ["last name",         "lastName"],
+  ["last_name",         "lastName"],
+  ["surname",           "lastName"],
+  ["family name",       "lastName"],
+  // ── combined employee name ────────────────────────────────────────────────
+  ["first & last",      "employee"],
+  ["first & last name", "employee"],
+  ["first and last",    "employee"],
   ["employee",          "employee"],
   ["employee name",     "employee"],
   ["employee_name",     "employee"],
+  ["full name",         "employee"],
   ["name",              "employee"],
   ["staff name",        "employee"],
   ["staff",             "employee"],
@@ -28,6 +42,7 @@ const HEADER_ALIASES: [pattern: string, field: RowKey][] = [
   ["time in (expected)","schedule"],
   ["shift",             "schedule"],
   // ── actual in ─────────────────────────────────────────────────────────────
+  ["on time",           "actualIn"],
   ["actual_in",         "actualIn"],
   ["actual in",         "actualIn"],
   ["time in",           "actualIn"],
@@ -35,6 +50,7 @@ const HEADER_ALIASES: [pattern: string, field: RowKey][] = [
   ["actual time in",    "actualIn"],
   ["check in",          "actualIn"],
   // ── actual out ────────────────────────────────────────────────────────────
+  ["off time",          "actualOut"],
   ["actual_out",        "actualOut"],
   ["actual out",        "actualOut"],
   ["time out",          "actualOut"],
@@ -89,13 +105,13 @@ function parseDate(value: unknown): string | null {
 function parseTime(value: unknown): string | null {
   if (!value && value !== 0) return null;
   if (value instanceof Date) {
-    // xlsx cellDates: time-only values come as Date with getHours/getMinutes
+    // xlsx cellDates: use local hours/minutes
     const h = String(value.getHours()).padStart(2, "0");
     const m = String(value.getMinutes()).padStart(2, "0");
     return `${h}:${m}`;
   }
   if (typeof value === "number") {
-    // fractional day: 0.5 = 12:00
+    // fractional day serial: 0.5 = 12:00
     const totalMin = Math.round(value * 24 * 60);
     const h = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
     const m = String(totalMin % 60).padStart(2, "0");
@@ -103,7 +119,11 @@ function parseTime(value: unknown): string | null {
   }
   const s = String(value).trim();
   if (!s) return null;
-  // Accept HH:MM or H:MM
+  // ISO 8601 datetime: "2024-01-15T08:30:00" or "2024-01-15T08:30:00.000Z"
+  // Extract the time portion directly from the string (ignore date & timezone)
+  const isoMatch = s.match(/T(\d{2}):(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}:${isoMatch[2]}`;
+  // Plain HH:MM or H:MM
   if (/^\d{1,2}:\d{2}$/.test(s)) return s.padStart(5, "0");
   return null;
 }
@@ -153,11 +173,23 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  // Load employees for name → id lookup
+  // Load employees for name → id + schedule lookup
   const allEmployees = await db
-    .select({ id: employees.id, name: employees.name })
+    .select({ id: employees.id, name: employees.name, expectedTimeIn: employees.expectedTimeIn })
     .from(employees);
-  const byName = new Map(allEmployees.map((e) => [e.name.trim().toLowerCase(), e.id]));
+
+  // name → { id, schedule } — trim "HH:MM:SS" to "HH:MM"
+  const byName = new Map(
+    allEmployees.map((e) => [
+      e.name.trim().toLowerCase(),
+      {
+        id: e.id,
+        schedule: e.expectedTimeIn
+          ? String(e.expectedTimeIn).slice(0, 5)   // "08:00:00" → "08:00"
+          : "08:00",
+      },
+    ])
+  );
 
   const toUpsert: (typeof attendanceLogs.$inferInsert)[] = [];
   const errors: { row: number; message: string }[] = [];
@@ -186,21 +218,32 @@ export async function POST(request: Request) {
       return;
     }
 
-    // Employee (required)
-    const rawName = String(get("employee") ?? "").trim();
+    // Employee (required) — support combined column OR separate First + Last
+    const hasSplit = Array.from(colMap.values()).includes("firstName") ||
+                     Array.from(colMap.values()).includes("lastName");
+    let rawName: string;
+    if (hasSplit) {
+      const firstFull = String(get("firstName") ?? "").trim();
+      const first = firstFull.split(/\s+/)[0] ?? ""; // only the first word
+      const last  = String(get("lastName")  ?? "").trim();
+      rawName = [first, last].filter(Boolean).join(" ");
+    } else {
+      rawName = String(get("employee") ?? "").trim();
+    }
     if (!rawName) {
       errors.push({ row: rowNum, message: "Missing employee name" });
       return;
     }
-    const employeeId = byName.get(rawName.toLowerCase());
-    if (!employeeId) {
+    const empRecord = byName.get(rawName.toLowerCase());
+    if (!empRecord) {
       errors.push({ row: rowNum, message: `Unknown employee: "${rawName}"` });
       return;
     }
+    const employeeId = empRecord.id;
 
-    // Schedule (optional, default 08:00)
+    // Schedule — use the employee's assigned schedule; file column overrides if present
     const rawSchedule = String(get("schedule") ?? "").trim();
-    const schedule = rawSchedule || "08:00";
+    const schedule = rawSchedule || empRecord.schedule;
     const isOff = schedule.toUpperCase() === "OFF";
 
     // Times (optional)

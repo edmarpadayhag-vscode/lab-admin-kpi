@@ -42,6 +42,9 @@ export const employees = pgTable("employees", {
   role: roleEnum("role").notNull().default("employee"),
   department: varchar("department", { length: 255 }),
   expectedTimeIn: time("expected_time_in").notNull().default("08:00:00"),
+  // 0=Sunday … 6=Saturday; null = no rest day set
+  restDay1: integer("rest_day_1"),
+  restDay2: integer("rest_day_2"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

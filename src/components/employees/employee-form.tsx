@@ -16,6 +16,8 @@ import type { Employee } from "@/types/employee";
 
 type Role = "employee" | "manager" | "admin";
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 interface Props {
   employee?: Employee;
   onSuccess: () => void;
@@ -23,6 +25,12 @@ interface Props {
 
 export function EmployeeForm({ employee, onSuccess }: Props) {
   const [role, setRole] = useState<Role>(employee?.role ?? "employee");
+  const [restDay1, setRestDay1] = useState<string>(
+    employee?.restDay1 != null ? String(employee.restDay1) : "none"
+  );
+  const [restDay2, setRestDay2] = useState<string>(
+    employee?.restDay2 != null ? String(employee.restDay2) : "none"
+  );
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -34,6 +42,8 @@ export function EmployeeForm({ employee, onSuccess }: Props) {
       role,
       department: (form.elements.namedItem("department") as HTMLInputElement).value,
       expectedTimeIn: (form.elements.namedItem("expectedTimeIn") as HTMLInputElement).value,
+      restDay1: restDay1 !== "none" ? Number(restDay1) : null,
+      restDay2: restDay2 !== "none" ? Number(restDay2) : null,
     };
 
     startTransition(async () => {
@@ -86,6 +96,37 @@ export function EmployeeForm({ employee, onSuccess }: Props) {
           defaultValue={employee?.expectedTimeIn ?? "08:00"}
           required
         />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>Rest Day 1</Label>
+          <Select value={restDay1} onValueChange={(v) => v !== null && setRestDay1(v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="None" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {DAY_NAMES.map((day, i) => (
+                <SelectItem key={i} value={String(i)}>{day}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Rest Day 2</Label>
+          <Select value={restDay2} onValueChange={(v) => v !== null && setRestDay2(v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="None" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {DAY_NAMES.map((day, i) => (
+                <SelectItem key={i} value={String(i)}>{day}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Button type="submit" className="w-full" disabled={isPending}>

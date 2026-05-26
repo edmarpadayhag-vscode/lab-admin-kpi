@@ -276,7 +276,7 @@ export default function TasksPage() {
 
       {/* ── employee filter ── */}
       <div className="flex items-center gap-3 max-w-xs">
-        <Select value={filterName || "all"} onValueChange={(v) => setFilterName(v === "all" ? "" : v)}>
+        <Select value={filterName || "all"} onValueChange={(v) => v !== null && setFilterName(v === "all" ? "" : v)}>
           <SelectTrigger>
             <SelectValue placeholder="All Employees" />
           </SelectTrigger>

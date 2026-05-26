@@ -3,14 +3,20 @@
 import { useEffect, useState, useTransition } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Upload, Pencil } from "lucide-react";
-import { upsertAttendanceLog, deleteAttendanceLog } from "./actions";
+import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs } from "./actions";
 import { SCHEDULE_OPTIONS, expectedOut } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
@@ -19,6 +25,8 @@ type Log = {
   workDate: string;
   employeeId: number;
   employeeName: string;
+  restDay1: number | null;
+  restDay2: number | null;
   schedule: string;
   expectedTimeIn: string | null;
   expectedTimeOut: string | null;
@@ -208,6 +216,14 @@ export default function AttendancePage() {
     });
   }
 
+  function handleClearAll() {
+    startTransition(async () => {
+      await clearAllAttendanceLogs();
+      await load();
+      setToast("All records cleared");
+    });
+  }
+
   async function handleImport(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!importFile) return;
@@ -249,6 +265,31 @@ export default function AttendancePage() {
           <h1 className="text-2xl font-bold">Attendance</h1>
         </div>
         <div className="flex gap-2">
+          {/* Clear All */}
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button variant="outline" disabled={isPending || logs.length === 0}>
+                  Clear All
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete all attendance records?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all {logs.length} record{logs.length !== 1 ? "s" : ""}. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={handleClearAll}>
+                  Delete All
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           {/* Import dialog */}
           <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
             <DialogTrigger render={<Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
@@ -346,16 +387,38 @@ export default function AttendancePage() {
               </TableCell>
             </TableRow>
           )}
-          {logs.map((log) => (
-            <TableRow key={log.id}>
+          {logs.map((log) => {
+            // Determine row status (explicit schedule beats rest-day detection)
+            const [y, mo, d] = log.workDate.split("-").map(Number);
+            const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
+            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" &&
+              ((log.restDay1 != null && dow === log.restDay1) ||
+               (log.restDay2 != null && dow === log.restDay2));
+            const isPTO = log.schedule === "PTO";
+            const isSL  = log.schedule === "SL";
+            const isOff = log.schedule === "OFF";
+            const isNonWork = isPTO || isSL || isRestDay || isOff;
+
+            // Expected In cell content
+            const expectedInCell = isPTO
+              ? <Badge variant="outline" className="text-blue-600 border-blue-400">PTO</Badge>
+              : isSL
+              ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
+              : isRestDay
+              ? <Badge variant="secondary">Rest Day</Badge>
+              : isOff ? "OFF"
+              : (log.expectedTimeIn ?? "—");
+
+            return (
+            <TableRow key={log.id} className={isNonWork ? "bg-muted/40" : ""}>
               <TableCell>{log.workDate}</TableCell>
               <TableCell className="font-medium">{log.employeeName}</TableCell>
-              <TableCell>{log.schedule === "OFF" ? "OFF" : (log.expectedTimeIn ?? "—")}</TableCell>
-              <TableCell>{log.expectedTimeOut ?? "—"}</TableCell>
+              <TableCell>{expectedInCell}</TableCell>
+              <TableCell>{isNonWork ? "—" : (log.expectedTimeOut ?? "—")}</TableCell>
               <TableCell>{log.actualTimeIn ?? "—"}</TableCell>
               <TableCell>{log.actualTimeOut ?? "—"}</TableCell>
               <TableCell>
-                {log.schedule === "OFF" ? "—" : log.lateMinutes > 0
+                {isNonWork ? "—" : log.lateMinutes > 0
                   ? <span className="text-destructive font-medium">{log.lateMinutes}</span>
                   : "0"}
               </TableCell>
@@ -369,7 +432,8 @@ export default function AttendancePage() {
                 </Button>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
 
