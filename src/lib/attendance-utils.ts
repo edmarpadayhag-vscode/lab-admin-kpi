@@ -37,6 +37,18 @@ export function calcLateMinutes(schedule: string, actualIn: string | null): numb
   return Math.max(0, (ah * 60 + am) - (eh * 60 + em));
 }
 
+/** Undertime minutes = MAX(0, expectedOut − actualOut). Returns 0 if either time is missing.
+ *  Accepts "HH:MM" or "HH:MM:SS" — only the first two parts are used. */
+export function calcUndertimeMinutes(
+  expectedTimeOut: string | null,
+  actualTimeOut: string | null,
+): number {
+  if (!expectedTimeOut || !actualTimeOut) return 0;
+  const [eh, em] = expectedTimeOut.split(":").map(Number);
+  const [ah, am] = actualTimeOut.split(":").map(Number);
+  return Math.max(0, (eh * 60 + em) - (ah * 60 + am));
+}
+
 /** Parse a CSV string into an array of row objects keyed by header. */
 export function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split(/\r?\n/);

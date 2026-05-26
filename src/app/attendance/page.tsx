@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Upload, Pencil } from "lucide-react";
 import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs } from "./actions";
-import { SCHEDULE_OPTIONS, expectedOut } from "@/lib/attendance-utils";
+import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
 type Log = {
@@ -375,6 +375,7 @@ export default function AttendancePage() {
             <TableHead>Actual In</TableHead>
             <TableHead>Actual Out</TableHead>
             <TableHead>Late (min)</TableHead>
+            <TableHead>Undertime (min)</TableHead>
             <TableHead>Remarks</TableHead>
             <TableHead />
           </TableRow>
@@ -382,7 +383,7 @@ export default function AttendancePage() {
         <TableBody>
           {logs.length === 0 && (
             <TableRow>
-              <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                 No attendance records yet. Add manually or import a CSV.
               </TableCell>
             </TableRow>
@@ -433,9 +434,18 @@ export default function AttendancePage() {
               <TableCell>{noActualIn  ? "—" : log.actualTimeIn!}</TableCell>
               <TableCell>{noActualOut ? "—" : log.actualTimeOut!}</TableCell>
               <TableCell>
-                {isNonWork ? "—" : log.lateMinutes > 0
+                {isNonWork || isAbsent ? "—" : log.lateMinutes > 0
                   ? <span className="text-destructive font-medium">{log.lateMinutes}</span>
                   : "0"}
+              </TableCell>
+              <TableCell>
+                {(() => {
+                  if (isNonWork || isAbsent || noActualOut) return "—";
+                  const ut = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
+                  return ut > 0
+                    ? <span className="text-destructive font-medium">{ut}</span>
+                    : "0";
+                })()}
               </TableCell>
               <TableCell className="max-w-40 truncate">
                 {isAbsent
