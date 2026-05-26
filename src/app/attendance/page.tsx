@@ -309,18 +309,18 @@ export default function AttendancePage() {
 
     totalWorkDays++;
 
-    // ── 1stHalf Absent: came in late; undertime = Expected Out − Actual In ───
+    // ── 1stHalf Absent: undertime = Actual In − Expected In ─────────────────
     if (log.schedule === "1stHalf Absent") {
       totalWorkMin += 9 * 60;
-      const ut = minutesDiff(log.actualTimeIn, log.expectedTimeOut) ?? 0;
+      const ut = minutesDiff(log.expectedTimeIn, log.actualTimeIn) ?? 0;
       if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
       continue;
     }
 
-    // ── 2ndHalf Absent: left early; undertime = Actual Out − Expected In ─────
+    // ── 2ndHalf Absent: undertime = Expected Out − Actual Out ────────────────
     if (log.schedule === "2ndHalf Absent") {
       totalWorkMin += 9 * 60;
-      const ut = minutesDiff(log.expectedTimeIn, log.actualTimeOut) ?? 0;
+      const ut = minutesDiff(log.actualTimeOut, log.expectedTimeOut) ?? 0;
       if (ut > 0) { countLateUndertime++; totalLateUndertimeMin += ut; }
       continue;
     }
@@ -550,7 +550,10 @@ export default function AttendancePage() {
               : isHOff
               ? <Badge variant="outline" className="text-green-600 border-green-400">H-OFF</Badge>
               : is1stHalfAbsent
-              ? <Badge variant="outline" className="text-orange-600 border-orange-400">1stHalf Absent</Badge>
+              ? <div className="flex flex-col gap-0.5">
+                  <Badge variant="outline" className="text-orange-600 border-orange-400 w-fit">1stHalf Absent</Badge>
+                  <span className="text-xs text-muted-foreground">{log.expectedTimeIn ?? "—"}</span>
+                </div>
               : is2ndHalfAbsent
               ? <div className="flex flex-col gap-0.5">
                   <Badge variant="outline" className="text-orange-600 border-orange-400 w-fit">2ndHalf Absent</Badge>
@@ -583,14 +586,14 @@ export default function AttendancePage() {
               <TableCell>
                 {(() => {
                   if (isNonWork || isAbsent || isHalfPTO) return "—";
-                  // 1stHalf Absent: came in late — undertime = Expected Out − Actual In
+                  // 1stHalf Absent: undertime = Actual In − Expected In
                   if (is1stHalfAbsent) {
-                    const ut = minutesDiff(log.actualTimeIn, log.expectedTimeOut) ?? 0;
+                    const ut = minutesDiff(log.expectedTimeIn, log.actualTimeIn) ?? 0;
                     return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
                   }
-                  // 2ndHalf Absent: left early — undertime = Actual Out − Expected In
+                  // 2ndHalf Absent: undertime = Expected Out − Actual Out
                   if (is2ndHalfAbsent) {
-                    const ut = minutesDiff(log.expectedTimeIn, log.actualTimeOut) ?? 0;
+                    const ut = minutesDiff(log.actualTimeOut, log.expectedTimeOut) ?? 0;
                     return ut > 0 ? <span className="text-destructive font-medium">{ut}</span> : "0";
                   }
                   if (noActualOut) return "—";
