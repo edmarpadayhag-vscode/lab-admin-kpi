@@ -410,7 +410,7 @@ export default function AttendancePage() {
       </div>
 
       {/* ── Summary widgets ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Work Days / Hours */}
         <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
           <span className="text-xs text-muted-foreground leading-tight">Total Work Days / Hours</span>
@@ -425,16 +425,11 @@ export default function AttendancePage() {
           <span className="text-xs text-muted-foreground">{totalAbsenceMin} min</span>
         </div>
 
-        {/* Count Late / Undertime */}
+        {/* Count + Total Min Late / Undertime */}
         <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
           <span className="text-xs text-muted-foreground leading-tight">Count Late / Undertime</span>
           <span className={`text-2xl font-bold tracking-tight ${countLateUndertime > 0 ? "text-destructive" : ""}`}>{countLateUndertime}<span className="text-sm font-normal text-muted-foreground ml-1">days</span></span>
-        </div>
-
-        {/* Total Minutes Late / Undertime */}
-        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground leading-tight">Total Min Late / Undertime</span>
-          <span className={`text-2xl font-bold tracking-tight ${totalLateUndertimeMin > 0 ? "text-destructive" : ""}`}>{totalLateUndertimeMin}<span className="text-sm font-normal text-muted-foreground ml-1">min</span></span>
+          <span className={`text-xs ${totalLateUndertimeMin > 0 ? "text-destructive" : "text-muted-foreground"}`}>{totalLateUndertimeMin} min</span>
         </div>
 
         {/* Overall Attendance */}
