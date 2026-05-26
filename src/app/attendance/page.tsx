@@ -272,12 +272,12 @@ export default function AttendancePage() {
     const [y, mo, d] = log.workDate.split("-").map(Number);
     const dow = new Date(y, mo - 1, d).getDay();
     const isRestDay =
-      log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" &&
+      log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" && log.schedule !== "Half-Day" &&
       ((log.restDay1 != null && dow === log.restDay1) ||
        (log.restDay2 != null && dow === log.restDay2));
     const isNonWork =
       log.schedule === "PTO" || log.schedule === "SL" ||
-      log.schedule === "OFF" || log.schedule === "H-OFF" || isRestDay;
+      log.schedule === "OFF" || log.schedule === "H-OFF" || log.schedule === "Half-Day" || isRestDay;
 
     if (isNonWork) continue;
     totalWorkDays++;
@@ -469,14 +469,15 @@ export default function AttendancePage() {
             const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const [y, mo, d] = log.workDate.split("-").map(Number);
             const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
-            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" &&
+            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" && log.schedule !== "Half-Day" &&
               ((log.restDay1 != null && dow === log.restDay1) ||
                (log.restDay2 != null && dow === log.restDay2));
-            const isPTO  = log.schedule === "PTO";
-            const isSL   = log.schedule === "SL";
-            const isOff  = log.schedule === "OFF";
-            const isHOff = log.schedule === "H-OFF";
-            const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
+            const isPTO    = log.schedule === "PTO";
+            const isSL     = log.schedule === "SL";
+            const isOff    = log.schedule === "OFF";
+            const isHOff   = log.schedule === "H-OFF";
+            const isHalfDay = log.schedule === "Half-Day";
+            const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff || isHalfDay;
 
             // Absent = valid work day but no actual times recorded
             const noActualIn  = isBlankTime(log.actualTimeIn);
@@ -490,6 +491,8 @@ export default function AttendancePage() {
               ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
               : isHOff
               ? <Badge variant="outline" className="text-green-600 border-green-400">H-OFF</Badge>
+              : isHalfDay
+              ? <Badge variant="outline" className="text-purple-600 border-purple-400">Half-Day</Badge>
               : isRestDay
               ? <Badge variant="secondary">Rest Day</Badge>
               : isOff ? "OFF"
