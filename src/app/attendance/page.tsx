@@ -389,6 +389,7 @@ export default function AttendancePage() {
           )}
           {logs.map((log) => {
             // Determine row status (explicit schedule beats rest-day detection)
+            const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const [y, mo, d] = log.workDate.split("-").map(Number);
             const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
             const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" &&
@@ -422,7 +423,10 @@ export default function AttendancePage() {
 
             return (
             <TableRow key={log.id} className={isNonWork ? "bg-muted/40" : ""}>
-              <TableCell>{log.workDate}</TableCell>
+              <TableCell>
+                <div>{log.workDate}</div>
+                <div className="text-xs text-muted-foreground">{DAY_NAMES[dow]}</div>
+              </TableCell>
               <TableCell className="font-medium">{log.employeeName}</TableCell>
               <TableCell>{expectedInCell}</TableCell>
               <TableCell>{isNonWork ? "—" : (log.expectedTimeOut ?? "—")}</TableCell>
