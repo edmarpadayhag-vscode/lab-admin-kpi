@@ -20,6 +20,11 @@ import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs } from
 import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
+/** Returns true when a stored time value represents "no time recorded". */
+function isBlankTime(t: string | null | undefined): boolean {
+  return !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
+}
+
 type Log = {
   id: number;
   workDate: string;
@@ -257,6 +262,45 @@ export default function AttendancePage() {
     setImportError(null);
   }
 
+  // ── Summary metrics ──────────────────────────────────────────────────────────
+  let totalWorkDays = 0;
+  let totalAbsences = 0;
+  let countLateUndertime = 0;
+  let totalLateUndertimeMin = 0;
+
+  for (const log of logs) {
+    const [y, mo, d] = log.workDate.split("-").map(Number);
+    const dow = new Date(y, mo - 1, d).getDay();
+    const isRestDay =
+      log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF" &&
+      ((log.restDay1 != null && dow === log.restDay1) ||
+       (log.restDay2 != null && dow === log.restDay2));
+    const isNonWork =
+      log.schedule === "PTO" || log.schedule === "SL" ||
+      log.schedule === "OFF" || log.schedule === "H-OFF" || isRestDay;
+
+    if (isNonWork) continue;
+    totalWorkDays++;
+
+    if (isBlankTime(log.actualTimeIn) && isBlankTime(log.actualTimeOut)) {
+      totalAbsences++;
+      continue;
+    }
+
+    const late = log.lateMinutes ?? 0;
+    const ut   = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
+    if (late > 0 || ut > 0) {
+      countLateUndertime++;
+      totalLateUndertimeMin += late + ut;
+    }
+  }
+
+  const totalWorkMin     = totalWorkDays * 9 * 60;
+  const totalAbsenceMin  = totalAbsences * 9 * 60;
+  const overallPct       = totalWorkMin > 0
+    ? Math.max(0, ((totalWorkMin - totalAbsenceMin - totalLateUndertimeMin) / totalWorkMin) * 100)
+    : null;
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
@@ -365,6 +409,48 @@ export default function AttendancePage() {
         </div>
       </div>
 
+      {/* ── Summary widgets ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {/* Total Work Days */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Total Work Days</span>
+          <span className="text-2xl font-bold tracking-tight">{totalWorkDays}</span>
+        </div>
+
+        {/* Total Work Hours */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Total Work Hours</span>
+          <span className="text-2xl font-bold tracking-tight">{totalWorkDays * 9}<span className="text-sm font-normal text-muted-foreground ml-1">hrs</span></span>
+        </div>
+
+        {/* Total Absences */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Total Absences</span>
+          <span className={`text-2xl font-bold tracking-tight ${totalAbsences > 0 ? "text-destructive" : ""}`}>{totalAbsences}<span className="text-sm font-normal text-muted-foreground ml-1">days</span></span>
+          <span className="text-xs text-muted-foreground">{totalAbsenceMin} min</span>
+        </div>
+
+        {/* Count Late / Undertime */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Count Late / Undertime</span>
+          <span className={`text-2xl font-bold tracking-tight ${countLateUndertime > 0 ? "text-destructive" : ""}`}>{countLateUndertime}<span className="text-sm font-normal text-muted-foreground ml-1">days</span></span>
+        </div>
+
+        {/* Total Minutes Late / Undertime */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Total Min Late / Undertime</span>
+          <span className={`text-2xl font-bold tracking-tight ${totalLateUndertimeMin > 0 ? "text-destructive" : ""}`}>{totalLateUndertimeMin}<span className="text-sm font-normal text-muted-foreground ml-1">min</span></span>
+        </div>
+
+        {/* Overall Attendance */}
+        <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground leading-tight">Overall Attendance</span>
+          <span className={`text-2xl font-bold tracking-tight ${overallPct !== null && overallPct < 100 ? "text-destructive" : ""}`}>
+            {overallPct !== null ? `${overallPct.toFixed(1)}%` : "—"}
+          </span>
+        </div>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>
@@ -403,9 +489,6 @@ export default function AttendancePage() {
             const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
 
             // Absent = valid work day but no actual times recorded
-            // "blank" covers: null, "", "0", "0:00", "00:00", "00:00:00", "0:00:00"
-            const isBlankTime = (t: string | null): boolean =>
-              !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
             const noActualIn  = isBlankTime(log.actualTimeIn);
             const noActualOut = isBlankTime(log.actualTimeOut);
             const isAbsent    = !isNonWork && noActualIn && noActualOut;
