@@ -400,9 +400,12 @@ export default function AttendancePage() {
             const isHOff = log.schedule === "H-OFF";
             const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
 
-            // Absent = valid work day but no actual times recorded (null or 00:00)
-            const noActualIn  = !log.actualTimeIn  || log.actualTimeIn  === "00:00";
-            const noActualOut = !log.actualTimeOut || log.actualTimeOut === "00:00";
+            // Absent = valid work day but no actual times recorded
+            // "blank" covers: null, "", "0", "0:00", "00:00"
+            const isBlankTime = (t: string | null): boolean =>
+              !t || t.trim() === "" || t === "0" || t === "0:00" || t === "00:00";
+            const noActualIn  = isBlankTime(log.actualTimeIn);
+            const noActualOut = isBlankTime(log.actualTimeOut);
             const isAbsent    = !isNonWork && noActualIn && noActualOut;
 
             // Expected In cell content
@@ -423,8 +426,8 @@ export default function AttendancePage() {
               <TableCell className="font-medium">{log.employeeName}</TableCell>
               <TableCell>{expectedInCell}</TableCell>
               <TableCell>{isNonWork ? "—" : (log.expectedTimeOut ?? "—")}</TableCell>
-              <TableCell>{noActualIn  ? "—" : log.actualTimeIn}</TableCell>
-              <TableCell>{noActualOut ? "—" : log.actualTimeOut}</TableCell>
+              <TableCell>{noActualIn  ? "—" : log.actualTimeIn!}</TableCell>
+              <TableCell>{noActualOut ? "—" : log.actualTimeOut!}</TableCell>
               <TableCell>
                 {isNonWork ? "—" : log.lateMinutes > 0
                   ? <span className="text-destructive font-medium">{log.lateMinutes}</span>
