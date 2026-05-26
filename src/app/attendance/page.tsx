@@ -400,6 +400,11 @@ export default function AttendancePage() {
             const isHOff = log.schedule === "H-OFF";
             const isNonWork = isPTO || isSL || isRestDay || isOff || isHOff;
 
+            // Absent = valid work day but no actual times recorded (null or 00:00)
+            const noActualIn  = !log.actualTimeIn  || log.actualTimeIn  === "00:00";
+            const noActualOut = !log.actualTimeOut || log.actualTimeOut === "00:00";
+            const isAbsent    = !isNonWork && noActualIn && noActualOut;
+
             // Expected In cell content
             const expectedInCell = isPTO
               ? <Badge variant="outline" className="text-blue-600 border-blue-400">PTO</Badge>
@@ -418,14 +423,20 @@ export default function AttendancePage() {
               <TableCell className="font-medium">{log.employeeName}</TableCell>
               <TableCell>{expectedInCell}</TableCell>
               <TableCell>{isNonWork ? "—" : (log.expectedTimeOut ?? "—")}</TableCell>
-              <TableCell>{log.actualTimeIn ?? "—"}</TableCell>
-              <TableCell>{log.actualTimeOut ?? "—"}</TableCell>
+              <TableCell>{noActualIn  ? "—" : log.actualTimeIn}</TableCell>
+              <TableCell>{noActualOut ? "—" : log.actualTimeOut}</TableCell>
               <TableCell>
                 {isNonWork ? "—" : log.lateMinutes > 0
                   ? <span className="text-destructive font-medium">{log.lateMinutes}</span>
                   : "0"}
               </TableCell>
-              <TableCell className="max-w-40 truncate">{log.remarks ?? "—"}</TableCell>
+              <TableCell className="max-w-40 truncate">
+                {isAbsent
+                  ? <span className="text-destructive font-medium">
+                      Absent{log.remarks ? ` — ${log.remarks}` : ""}
+                    </span>
+                  : (log.remarks ?? "—")}
+              </TableCell>
               <TableCell className="flex gap-1">
                 <Button size="icon" variant="ghost" onClick={() => setEditing(log)} disabled={isPending}>
                   <Pencil className="h-4 w-4" />
