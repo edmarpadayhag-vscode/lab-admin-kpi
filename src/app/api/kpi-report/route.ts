@@ -96,20 +96,43 @@ export async function GET(request: NextRequest) {
     ? (presentDays / totalWorkDays) * 100
     : null;
 
-  // ── 2. Facility ──────────────────────────────────────────────────────────────
+  // ── 2. Facility (shared — same score for all employees in the month) ─────────
+  // Matches the exact formula used on the Facility & Orderliness tab:
+  //   rate = (weekdays with a log entry) / (weekdays − no-work days) × 100
   const facLogs = await db
-    .select({ status: facilityLogs.status })
+    .select({ date: facilityLogs.date, source: facilityLogs.source })
     .from(facilityLogs)
     .where(and(
-      eq(facilityLogs.submittedBy, employeeId),
       gte(facilityLogs.date, firstDay),
       lte(facilityLogs.date, lastDay),
     ));
 
-  const totalFacility  = facLogs.length;
-  const compliantCount = facLogs.filter(f => f.status === "compliant").length;
-  const facilityPct: number | null = totalFacility > 0
-    ? (compliantCount / totalFacility) * 100
+  // Separate no-work markers from real log entries
+  const noWorkDates = new Set<string>();
+  const logDates    = new Set<string>();
+  for (const row of facLogs) {
+    if (row.source === "no_work") {
+      noWorkDates.add(row.date);
+    } else {
+      logDates.add(row.date);
+    }
+  }
+
+  // Count weekdays, excluding no-work tagged days
+  const daysInMonth = new Date(year, month, 0).getDate();
+  let countableWeekdays = 0;
+  let daysWithEntry     = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dow = new Date(year, month - 1, d).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    if (isWeekend || noWorkDates.has(dateStr)) continue;
+    countableWeekdays++;
+    if (logDates.has(dateStr)) daysWithEntry++;
+  }
+
+  const facilityPct: number | null = countableWeekdays > 0
+    ? (daysWithEntry / countableWeekdays) * 100
     : null;
 
   // ── 3. Tasks ─────────────────────────────────────────────────────────────────
@@ -193,9 +216,9 @@ export async function GET(request: NextRequest) {
     { label: "Timeliness of Response",   weight: 0.10, pct: timelinessPct     },
     { label: "Task Completion",          weight: 0.10, pct: taskCompletionPct },
     { label: "Attendance",               weight: 0.20, pct: attendancePct     },
-    { label: "ESAT Survey (Staff)",      weight: 0.15, pct: esatStaffPct      },
-    { label: "ESAT Survey (Products)",   weight: 0.15, pct: esatProductsPct   },
-    { label: "ESAT Survey (PM)",         weight: 0.15, pct: esatPmPct         },
+    { label: "Agents ESAT (Staff)",       weight: 0.15, pct: esatStaffPct      },
+    { label: "Agents ESAT (Products)",   weight: 0.15, pct: esatProductsPct   },
+    { label: "Client ESAT",              weight: 0.15, pct: esatPmPct         },
     { label: "Reddit Responses",         weight: 0.05, pct: redditPct         },
   ];
 
@@ -224,8 +247,8 @@ export async function GET(request: NextRequest) {
       presentDays,
       totalTasks,
       completedTasks,
-      totalFacility,
-      compliantCount,
+      totalFacility: countableWeekdays,
+      compliantCount: daysWithEntry,
       esatCount: esatLogs.length,
       redditWeeks: redditLogs.length,
     },

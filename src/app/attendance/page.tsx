@@ -20,6 +20,13 @@ import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs } from
 import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+
 /** Returns true when a stored time value represents "no time recorded". */
 function isBlankTime(t: string | null | undefined): boolean {
   return !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
@@ -201,6 +208,12 @@ export default function AttendancePage() {
   const [editing, setEditing] = useState<Log | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // filters
+  const _now = new Date();
+  const [filterEmployee, setFilterEmployee] = useState("all");
+  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
+  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+
   // import dialog
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -284,6 +297,14 @@ export default function AttendancePage() {
     setImportError(null);
   }
 
+  // ── Filtered logs ─────────────────────────────────────────────────────────────
+  const monthPrefix = `${filterYear}-${String(Number(filterMonth)).padStart(2, "0")}`;
+  const filteredLogs = logs.filter((l) => {
+    const matchesMonth    = l.workDate.startsWith(monthPrefix);
+    const matchesEmployee = filterEmployee === "all" || l.employeeId === Number(filterEmployee);
+    return matchesMonth && matchesEmployee;
+  });
+
   // ── Summary metrics ──────────────────────────────────────────────────────────
   let totalWorkDays = 0;
   let totalWorkMin  = 0;   // accumulated incrementally (half-day PTO contributes partial)
@@ -291,7 +312,7 @@ export default function AttendancePage() {
   let countLateUndertime   = 0;
   let totalLateUndertimeMin = 0;
 
-  for (const log of logs) {
+  for (const log of filteredLogs) {
     const [y, mo, d] = log.workDate.split("-").map(Number);
     const dow = new Date(y, mo - 1, d).getDay();
     const isRestDay =
@@ -462,6 +483,54 @@ export default function AttendancePage() {
         </div>
       </div>
 
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label>Employee</Label>
+          <Select value={filterEmployee} onValueChange={(v) => v !== null && setFilterEmployee(v)}>
+            <SelectTrigger className="w-48">
+              <SelectValue>
+                {filterEmployee === "all"
+                  ? "All employees"
+                  : employees.find((e) => String(e.id) === filterEmployee)?.name ?? "All employees"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All employees</SelectItem>
+              {employees.map((e) => (
+                <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Month</Label>
+          <Select value={filterMonth} onValueChange={(v) => v !== null && setFilterMonth(v)}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MONTH_NAMES.map((name, i) => (
+                <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Year</Label>
+          <Select value={filterYear} onValueChange={(v) => v !== null && setFilterYear(v)}>
+            <SelectTrigger className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {YEAR_OPTIONS.map(y => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* ── Summary widgets ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Work Days / Hours */}
@@ -510,14 +579,16 @@ export default function AttendancePage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {logs.length === 0 && (
+          {filteredLogs.length === 0 && (
             <TableRow>
               <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
-                No attendance records yet. Add manually or import a CSV.
+                {logs.length === 0
+                  ? "No attendance records yet. Add manually or import a CSV."
+                  : `No records for ${filterEmployee !== "all" ? `${employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"} in ` : ""}${MONTH_NAMES[Number(filterMonth) - 1]} ${filterYear}.`}
               </TableCell>
             </TableRow>
           )}
-          {logs.map((log) => {
+          {filteredLogs.map((log) => {
             // Determine row status (explicit schedule beats rest-day detection)
             const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const [y, mo, d] = log.workDate.split("-").map(Number);

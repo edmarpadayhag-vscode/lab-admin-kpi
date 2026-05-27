@@ -114,16 +114,22 @@ export const tasks = pgTable("tasks", {
 
 // ─── ESAT Feedback ────────────────────────────────────────────────────────────
 
+export const esatTypeEnum = pgEnum("esat_type", ["agents", "client"]);
+
 export const esatFeedback = pgTable("esat_feedback", {
   id: serial("id").primaryKey(),
   staffId: integer("staff_id")
     .notNull()
     .references(() => employees.id),
+  // 'agents' = Agents ESAT, 'client' = Client ESAT
+  esatType: esatTypeEnum("esat_type").notNull().default("agents"),
   // 1–5 rating
   score: integer("score").notNull(),
   productWorking: boolean("product_working").notNull().default(true),
   equivalentScore: real("equivalent_score"),
   remarks: text("remarks"),
+  // Name of the person who submitted the rating (Client ESAT only; often blank)
+  rater: varchar("rater", { length: 255 }),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 

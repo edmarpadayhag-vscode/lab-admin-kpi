@@ -30,8 +30,9 @@ const navItems = [
   { title: "Employees", url: "/employees", icon: Users },
   { title: "Attendance", url: "/attendance", icon: CalendarCheck },
   { title: "Tasks", url: "/tasks", icon: ClipboardList },
-  { title: "ESAT Feedback", url: "/esat", icon: Star },
-  { title: "Facility", url: "/facility", icon: Building2 },
+  { title: "Agents ESAT", url: "/esat/agents", icon: Star },
+  { title: "Client ESAT", url: "/esat/client", icon: Star },
+  { title: "Facility and Orderliness", url: "/facility", icon: Building2 },
   { title: "Reddit", url: "/reddit", icon: MessageCircle },
   { title: "KPI Reports", url: "/reports", icon: BarChart3 },
 ];

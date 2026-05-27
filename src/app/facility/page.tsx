@@ -266,9 +266,20 @@ export default function FacilityPage() {
               </div>
               <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground">Expected columns (Microsoft Forms export):</p>
-                <p><strong>Column B</strong> — <code>Start time</code> → Date</p>
-                <p><strong>Column H</strong> — <code>Please enter your name</code> → Personnel Present</p>
-                <p>Other columns are ignored. The header row is auto-detected.</p>
+                <table className="w-full mt-1 border-collapse">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1 pr-3 font-medium text-foreground">Column header in file</th>
+                      <th className="text-left py-1 font-medium text-foreground">Maps to</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td className="py-0.5 pr-3"><code>Please enter the date.</code></td><td>Date</td></tr>
+                    <tr><td className="py-0.5 pr-3"><code>Start time</code></td><td>Time</td></tr>
+                    <tr><td className="py-0.5 pr-3"><code>Please enter your name/s.</code></td><td>Personnel Present</td></tr>
+                  </tbody>
+                </table>
+                <p className="mt-1">Other columns are ignored. Column order does not matter.</p>
               </div>
               {importError && (
                 <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
