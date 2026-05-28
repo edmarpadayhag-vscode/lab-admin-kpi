@@ -15,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Upload, Pencil } from "lucide-react";
-import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs } from "./actions";
+import { Trash2, Upload, Pencil } from "lucide-react";
+import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs, upsertEmployeeSchedule, applyMonthlySchedule } from "./actions";
 import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
@@ -75,11 +75,13 @@ type Log = {
 function AttendanceForm({
   employees,
   initial,
+  defaultSchedule,
   isPending,
   onSubmit,
 }: {
   employees: Employee[];
   initial?: Log;
+  defaultSchedule?: string;
   isPending: boolean;
   onSubmit: (data: {
     employeeId: number;
@@ -91,7 +93,7 @@ function AttendanceForm({
   }) => void;
 }) {
   const isEdit = !!initial;
-  const [schedule, setSchedule] = useState(initial?.schedule ?? "08:00");
+  const [schedule, setSchedule] = useState(initial?.schedule ?? defaultSchedule ?? "08:00");
   const [selectedEmployee, setSelectedEmployee] = useState(
     initial ? String(initial.employeeId) : ""
   );
@@ -204,7 +206,6 @@ function AttendanceForm({
 export default function AttendancePage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Log | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -213,6 +214,40 @@ export default function AttendancePage() {
   const [filterEmployee, setFilterEmployee] = useState("all");
   const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+
+  // Monthly schedule + rest days for the selected employee + month/year
+  const [monthlySchedule, setMonthlySchedule] = useState<string>("08:00");
+  const [restDays,         setRestDays]         = useState<number[]>([]);
+  const [isApplying,       setIsApplying]        = useState(false);
+
+  const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // Load monthly schedule + rest days whenever employee / month / year changes
+  useEffect(() => {
+    if (filterEmployee === "all") { setMonthlySchedule("08:00"); setRestDays([]); return; }
+    fetch(`/api/employee-schedules?employeeId=${filterEmployee}&month=${filterMonth}&year=${filterYear}`)
+      .then(r => r.json())
+      .then(({ schedule, restDays: rd }: { schedule: string | null; restDays: number[] }) => {
+        setMonthlySchedule(schedule ?? "08:00");
+        setRestDays(rd ?? []);
+      });
+  }, [filterEmployee, filterMonth, filterYear]);
+
+  function toggleRestDay(dow: number) {
+    setRestDays(prev =>
+      prev.includes(dow) ? prev.filter(d => d !== dow) : [...prev, dow]
+    );
+  }
+
+  async function handleSaveAndApply() {
+    if (filterEmployee === "all") return;
+    setIsApplying(true);
+    await upsertEmployeeSchedule(Number(filterEmployee), Number(filterMonth), Number(filterYear), monthlySchedule, restDays);
+    await applyMonthlySchedule(Number(filterEmployee), Number(filterMonth), Number(filterYear));
+    await load();
+    setIsApplying(false);
+    setToast("Schedule & rest days applied");
+  }
 
   // import dialog
   const [importOpen, setImportOpen] = useState(false);
@@ -243,7 +278,6 @@ export default function AttendancePage() {
   function handleUpsert(data: Parameters<typeof upsertAttendanceLog>[0]) {
     startTransition(async () => {
       await upsertAttendanceLog(data);
-      setAddOpen(false);
       setEditing(null);
       load();
     });
@@ -469,17 +503,6 @@ export default function AttendancePage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger render={<Button><Plus className="mr-2 h-4 w-4" />Log Attendance</Button>} />
-            <DialogContent>
-              <DialogHeader><DialogTitle>Log Attendance</DialogTitle></DialogHeader>
-              <AttendanceForm
-                employees={employees}
-                isPending={isPending}
-                onSubmit={handleUpsert}
-              />
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -529,7 +552,65 @@ export default function AttendancePage() {
             </SelectContent>
           </Select>
         </div>
+
       </div>
+
+      {/* Monthly Schedule + Rest Days — only when a specific employee is selected */}
+      {filterEmployee !== "all" && (
+        <div className="flex flex-wrap items-end gap-6 rounded-lg border bg-card px-5 py-4">
+          {/* Schedule picker */}
+          <div className="flex flex-col gap-1.5">
+            <Label className="font-semibold">Monthly Schedule (Expected In)</Label>
+            <Select
+              value={monthlySchedule}
+              onValueChange={(v) => v !== null && setMonthlySchedule(v)}
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-56">
+                {SCHEDULE_OPTIONS.filter(s => /^\d{2}:\d{2}$/.test(s)).map(s => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Rest days picker */}
+          <div className="flex flex-col gap-1.5">
+            <Label className="font-semibold">Rest Days</Label>
+            <div className="flex gap-1.5">
+              {DOW_LABELS.map((label, dow) => (
+                <button
+                  key={dow}
+                  type="button"
+                  onClick={() => toggleRestDay(dow)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                    restDays.includes(dow)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-input hover:bg-muted"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Save & Apply button */}
+          <Button
+            onClick={handleSaveAndApply}
+            disabled={isApplying}
+            className="gap-2"
+          >
+            {isApplying ? "Applying…" : "Save & Apply"}
+          </Button>
+
+          <p className="text-xs text-muted-foreground self-end pb-1">
+            Updates Expected In on all existing logs for {MONTH_NAMES[Number(filterMonth) - 1]} {filterYear}.
+          </p>
+        </div>
+      )}
 
       {/* ── Summary widgets ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -554,9 +635,9 @@ export default function AttendancePage() {
           <span className={`text-xs ${totalLateUndertimeMin > 0 ? "text-destructive" : "text-muted-foreground"}`}>{totalLateUndertimeMin} min</span>
         </div>
 
-        {/* Overall Attendance */}
+        {/* Monthly Attendance */}
         <div className="rounded-lg border bg-card p-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground leading-tight">Overall Attendance</span>
+          <span className="text-xs text-muted-foreground leading-tight">Monthly Attendance</span>
           <span className={`text-2xl font-bold tracking-tight ${overallPct !== null && overallPct < 100 ? "text-destructive" : ""}`}>
             {overallPct !== null ? `${overallPct.toFixed(1)}%` : "—"}
           </span>

@@ -29,16 +29,27 @@ function getISOWeeksInMonth(year: number, month: number): number[] {
   return Array.from(weeks);
 }
 
-/**
- * Convert an actual-performance percentage (0–100) to a 5-point rating.
- * null → 0 (no data)
+/** Facility, Timeliness, Task Completion scale:
+ *  5 = 95–100%  |  4 = 90–94%  |  3 = 85–89%  |  2 = 80–84%  |  1 = <80%
  */
-function toRating(pct: number | null): number {
+function toRatingStandard(pct: number | null): number {
+  if (pct === null) return 0;
+  if (pct >= 95) return 5;
+  if (pct >= 90) return 4;
+  if (pct >= 85) return 3;
+  if (pct >= 80) return 2;
+  return 1;
+}
+
+/** Attendance scale:
+ *  5 = 100%  |  4 = 95–99.99%  |  3 = 90–94.99%  |  2 = 85–89.99%  |  1 = <85%
+ */
+function toRatingAttendance(pct: number | null): number {
   if (pct === null) return 0;
   if (pct >= 100) return 5;
-  if (pct >= 90) return 4;
-  if (pct >= 80) return 3;
-  if (pct >= 70) return 2;
+  if (pct >= 95)  return 4;
+  if (pct >= 90)  return 3;
+  if (pct >= 85)  return 2;
   return 1;
 }
 
@@ -135,7 +146,8 @@ export async function GET(request: NextRequest) {
     ? (daysWithEntry / countableWeekdays) * 100
     : null;
 
-  // ── 3. Tasks ─────────────────────────────────────────────────────────────────
+  // ── 3. Tasks — same formula as the Tasks tab widgets (TOR and TC) ────────────
+  // Filters: dueDate in the selected month, assigned to this employee.
   const taskList = await db
     .select({
       status:        tasks.status,
@@ -149,20 +161,21 @@ export async function GET(request: NextRequest) {
       lte(tasks.dueDate, lastDay),
     ));
 
+  // TC  = totalCompleted / totalTasks × 100  (matches Tasks tab)
   const totalTasks     = taskList.length;
-  const completedTasks = taskList.filter(t => t.status === "completed").length;
+  const totalCompleted = taskList.filter(t => t.status === "completed").length;
   const taskCompletionPct: number | null = totalTasks > 0
-    ? (completedTasks / totalTasks) * 100
+    ? (totalCompleted / totalTasks) * 100
     : null;
 
-  const onTimeTasks = taskList.filter(t =>
+  // TOR = completedOnTime / totalCompleted × 100  (matches Tasks tab)
+  const completedOnTime = taskList.filter(t =>
     t.status === "completed" &&
-    t.completedDate !== null &&
-    t.dueDate !== null &&
+    t.completedDate != null &&
     t.completedDate <= t.dueDate
   ).length;
-  const timelinessPct: number | null = completedTasks > 0
-    ? (onTimeTasks / completedTasks) * 100
+  const timelinessPct: number | null = totalCompleted > 0
+    ? (completedOnTime / totalCompleted) * 100
     : null;
 
   // ── 4. ESAT ──────────────────────────────────────────────────────────────────
@@ -170,7 +183,7 @@ export async function GET(request: NextRequest) {
     .select({
       score:          esatFeedback.score,
       productWorking: esatFeedback.productWorking,
-      equivalentScore: esatFeedback.equivalentScore,
+      esatType:       esatFeedback.esatType,
     })
     .from(esatFeedback)
     .where(and(
@@ -179,55 +192,69 @@ export async function GET(request: NextRequest) {
       lte(esatFeedback.submittedAt, endTs),
     ));
 
-  // Staff ESAT: avg score / 5 × 100
-  const esatStaffPct: number | null = esatLogs.length > 0
-    ? (esatLogs.reduce((s, e) => s + e.score, 0) / esatLogs.length / 5) * 100
+  const agentsLogs = esatLogs.filter(e => e.esatType === "agents");
+  const clientLogs = esatLogs.filter(e => e.esatType === "client");
+
+  // Agents Staff: avg score (1–5 raw)
+  const agentsStaffScore: number | null = agentsLogs.length > 0
+    ? agentsLogs.reduce((s, e) => s + e.score, 0) / agentsLogs.length
     : null;
 
-  // Products ESAT: % of submissions where productWorking = true
-  const esatProductsPct: number | null = esatLogs.length > 0
-    ? (esatLogs.filter(e => e.productWorking).length / esatLogs.length) * 100
+  // Agents Products: (% productWorking) × 5 → 0–5 raw
+  const agentsProductsScore: number | null = agentsLogs.length > 0
+    ? (agentsLogs.filter(e => e.productWorking).length / agentsLogs.length) * 5
     : null;
 
-  // PM ESAT: avg equivalentScore — stored as 0-100
-  const validEq = esatLogs.filter(e => e.equivalentScore !== null);
-  const esatPmPct: number | null = validEq.length > 0
-    ? validEq.reduce((s, e) => s + (e.equivalentScore ?? 0), 0) / validEq.length
+  // Client ESAT: avg score (1–5 raw)
+  const clientEsatScore: number | null = clientLogs.length > 0
+    ? clientLogs.reduce((s, e) => s + e.score, 0) / clientLogs.length
     : null;
 
   // ── 5. Reddit ────────────────────────────────────────────────────────────────
-  const weekNums = getISOWeeksInMonth(year, month);
   const redditLogs = await db
-    .select({ activityScore: redditActivity.activityScore, weekNumber: redditActivity.weekNumber })
+    .select({ activityScore: redditActivity.activityScore, isActive: redditActivity.isActive })
     .from(redditActivity)
     .where(and(
       eq(redditActivity.employeeId, employeeId),
+      eq(redditActivity.month, month),
       eq(redditActivity.year, year),
-      inArray(redditActivity.weekNumber, weekNums),
     ));
 
-  const redditPct: number | null = redditLogs.length > 0
-    ? (redditLogs.reduce((s, r) => s + r.activityScore, 0) / redditLogs.length / 5) * 100
+  const activeReddit = redditLogs.filter(r => r.isActive);
+  // Raw avg activity score (0–5)
+  const redditScore: number | null = activeReddit.length > 0
+    ? activeReddit.reduce((s, r) => s + r.activityScore, 0) / activeReddit.length
     : null;
 
   // ── Build KPI rows ───────────────────────────────────────────────────────────
-  const KPI_DEFS: { label: string; weight: number; pct: number | null }[] = [
-    { label: "Facility & Orderliness",   weight: 0.10, pct: facilityPct       },
-    { label: "Timeliness of Response",   weight: 0.10, pct: timelinessPct     },
-    { label: "Task Completion",          weight: 0.10, pct: taskCompletionPct },
-    { label: "Attendance",               weight: 0.20, pct: attendancePct     },
-    { label: "Agents ESAT (Staff)",       weight: 0.15, pct: esatStaffPct      },
-    { label: "Agents ESAT (Products)",   weight: 0.15, pct: esatProductsPct   },
-    { label: "Client ESAT",              weight: 0.15, pct: esatPmPct         },
-    { label: "Reddit Responses",         weight: 0.05, pct: redditPct         },
+  type KpiDef = {
+    label: string;
+    weight: number;
+    value: number | null;
+    displayType: "percent" | "score";
+    ratingFn?: (pct: number | null) => number;
+  };
+
+  const KPI_DEFS: KpiDef[] = [
+    { label: "Facility & Orderliness",  weight: 0.10, value: facilityPct,         displayType: "percent", ratingFn: toRatingStandard  },
+    { label: "Timeliness of Response",  weight: 0.10, value: timelinessPct,       displayType: "percent", ratingFn: toRatingStandard  },
+    { label: "Task Completion",         weight: 0.10, value: taskCompletionPct,   displayType: "percent", ratingFn: toRatingStandard  },
+    { label: "Attendance",              weight: 0.20, value: attendancePct,       displayType: "percent", ratingFn: toRatingAttendance },
+    { label: "Agents ESAT (Staff)",     weight: 0.15, value: agentsStaffScore,    displayType: "score"   },
+    { label: "Agents ESAT (Products)",  weight: 0.15, value: agentsProductsScore, displayType: "score"   },
+    { label: "Client ESAT",             weight: 0.15, value: clientEsatScore,     displayType: "score"   },
+    { label: "Reddit Responses",        weight: 0.05, value: redditScore,         displayType: "score"   },
   ];
 
   const kpis = KPI_DEFS.map(def => {
-    const rating = toRating(def.pct);
+    const rating = def.displayType === "percent"
+      ? (def.ratingFn ?? toRatingStandard)(def.value)
+      : (def.value ?? 0);
     return {
       label:               def.label,
       weight:              def.weight,
-      actualPerformance:   def.pct,
+      actualPerformance:   def.value,
+      displayType:         def.displayType,
       rating,
       weightedPerformance: rating * def.weight,
     };
@@ -246,7 +273,7 @@ export async function GET(request: NextRequest) {
       totalWorkDays,
       presentDays,
       totalTasks,
-      completedTasks,
+      completedTasks: totalCompleted,
       totalFacility: countableWeekdays,
       compliantCount: daysWithEntry,
       esatCount: esatLogs.length,

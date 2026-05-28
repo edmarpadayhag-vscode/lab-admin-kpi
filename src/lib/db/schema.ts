@@ -15,7 +15,7 @@ import {
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export const roleEnum = pgEnum("role", ["employee", "manager", "admin"]);
+export const roleEnum = pgEnum("role", ["employee", "manager", "admin", "lab_admin", "trainer", "qa"]);
 export const taskStatusEnum = pgEnum("task_status", [
   "pending",
   "in_progress",
@@ -48,6 +48,24 @@ export const employees = pgTable("employees", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ─── Employee Monthly Schedules ───────────────────────────────────────────────
+
+export const employeeSchedules = pgTable(
+  "employee_schedules",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id").notNull().references(() => employees.id),
+    month: integer("month").notNull(),
+    year: integer("year").notNull(),
+    // Expected time-in for this employee for the given month, e.g. "08:00"
+    schedule: varchar("schedule", { length: 20 }).notNull().default("08:00"),
+    // JSON-encoded number[]: day-of-week indices (0=Sun … 6=Sat) that are rest days
+    restDays: text("rest_days").notNull().default("[]"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.employeeId, t.month, t.year)]
+);
 
 // ─── Attendance ───────────────────────────────────────────────────────────────
 
@@ -142,8 +160,12 @@ export const redditActivity = pgTable(
     employeeId: integer("employee_id")
       .notNull()
       .references(() => employees.id),
-    weekNumber: integer("week_number").notNull(),
+    month: integer("month").notNull().default(1),
     year: integer("year").notNull(),
+    // 1–5: week position within the month
+    weekNumber: integer("week_number").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    // JSON-encoded string[]: multiple post/reply links per week
     redditPostLink: text("reddit_post_link"),
     replyLink: text("reply_link"),
     // Scoring: >= 3 replies = 5, 2 = 2, 1 = 1, 0 = 0
@@ -151,7 +173,7 @@ export const redditActivity = pgTable(
     activityScore: integer("activity_score").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.employeeId, t.weekNumber, t.year)]
+  (t) => [unique().on(t.employeeId, t.month, t.year, t.weekNumber)]
 );
 
 // ─── KPI Scores (computed monthly) ───────────────────────────────────────────

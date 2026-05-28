@@ -19,9 +19,10 @@ type Employee = {
 
 type KpiRow = {
   label: string;
-  weight: number;           // 0.10, 0.20, etc.
-  actualPerformance: number | null; // 0–100 or null
-  rating: number;           // 0–5
+  weight: number;
+  actualPerformance: number | null;
+  displayType: "percent" | "score";
+  rating: number;
   weightedPerformance: number;
 };
 
@@ -77,6 +78,78 @@ function ratingLabel(rating: number): string {
 function fmtPct(n: number | null): string {
   if (n === null) return "—";
   return `${n.toFixed(1)}%`;
+}
+
+type Opportunity = { text: string; level: "high" | "medium" | "low" };
+
+function generateOpportunities(report: KpiReport): Opportunity[] {
+  const items: Opportunity[] = [];
+
+  for (const kpi of report.kpis) {
+    const { label, actualPerformance: pct, rating, displayType } = kpi;
+    const effectiveRating = displayType === "score" ? rating : Math.round(rating);
+    if (effectiveRating >= 5) continue; // already at max — no opportunity
+
+    const level: Opportunity["level"] =
+      effectiveRating <= 2 ? "high" : effectiveRating <= 3 ? "medium" : "low";
+
+    const fmt = (n: number) => n.toFixed(1);
+
+    if (label === "Facility & Orderliness") {
+      if (pct === null) {
+        items.push({ text: "Facility & Orderliness: No data recorded for this period. Ensure daily facility checks are submitted.", level: "high" });
+      } else {
+        const gap = (100 - pct).toFixed(1);
+        items.push({ text: `Facility & Orderliness (${fmt(pct)}%): ${gap}% of expected facility checks were missed. Aim for ≥ 95% daily submission compliance.`, level });
+      }
+    } else if (label === "Timeliness of Response") {
+      if (pct === null) {
+        items.push({ text: "Timeliness of Response: No completed tasks found. Ensure tasks are marked completed with accurate completion dates.", level: "high" });
+      } else {
+        items.push({ text: `Timeliness of Response (${fmt(pct)}%): ${report.meta.completedTasks} out of ${report.meta.totalTasks} tasks were completed. Work on submitting deliverables on or before the due date.`, level });
+      }
+    } else if (label === "Task Completion") {
+      if (pct === null) {
+        items.push({ text: "Task Completion: No tasks were found for this period. Verify tasks are properly assigned and tracked.", level: "high" });
+      } else {
+        const remaining = report.meta.totalTasks - report.meta.completedTasks;
+        items.push({ text: `Task Completion (${fmt(pct)}%): ${remaining} task${remaining !== 1 ? "s" : ""} remain${remaining === 1 ? "s" : ""} incomplete. Prioritize closing out open items before month-end.`, level });
+      }
+    } else if (label === "Attendance") {
+      if (pct === null) {
+        items.push({ text: "Attendance: No attendance records found. Ensure attendance logs are being submitted for this period.", level: "high" });
+      } else {
+        const absent = report.meta.totalWorkDays - report.meta.presentDays;
+        items.push({ text: `Attendance (${fmt(pct)}%): ${absent} absence${absent !== 1 ? "s" : ""} recorded out of ${report.meta.totalWorkDays} work days. Consistent attendance directly impacts team productivity.`, level });
+      }
+    } else if (label === "Agents ESAT (Staff)") {
+      if (pct === null) {
+        items.push({ text: "Agents ESAT (Staff): No ESAT submissions found. Encourage clients to submit feedback after each interaction.", level: "high" });
+      } else {
+        items.push({ text: `Agents ESAT – Staff (${rating.toFixed(2)}/5): Staff satisfaction rating is below target. Focus on responsiveness, accuracy, and communication quality.`, level });
+      }
+    } else if (label === "Agents ESAT (Products)") {
+      if (pct === null) {
+        items.push({ text: "Agents ESAT (Products): No product feedback recorded. Ensure product working status is captured in ESAT submissions.", level: "high" });
+      } else {
+        items.push({ text: `Agents ESAT – Products (${rating.toFixed(2)}/5): Product reliability issues were reported. Coordinate with the team to resolve recurring product concerns and improve uptime.`, level });
+      }
+    } else if (label === "Client ESAT") {
+      if (pct === null) {
+        items.push({ text: "Client ESAT: No client feedback found for this period. Proactively request client satisfaction ratings after project milestones.", level: "high" });
+      } else {
+        items.push({ text: `Client ESAT (${rating.toFixed(2)}/5): Client satisfaction is below target. Review client feedback themes and develop an action plan to address recurring concerns.`, level });
+      }
+    } else if (label === "Reddit Responses") {
+      if (pct === null) {
+        items.push({ text: "Reddit Responses: No activity logged. Participate in at least 3 Reddit reply threads per active week to achieve full score.", level: "high" });
+      } else {
+        items.push({ text: `Reddit Responses (${rating.toFixed(2)}/5): Community engagement is below maximum. Aim for ≥ 3 quality replies per active week to reach a rating of 5.`, level });
+      }
+    }
+  }
+
+  return items;
 }
 
 function fmtWeight(w: number): string {
@@ -288,6 +361,8 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-center border-r border-slate-200">
                       {kpi.actualPerformance === null ? (
                         <span className="text-muted-foreground text-xs">No data</span>
+                      ) : kpi.displayType === "score" ? (
+                        <span className="font-semibold">{kpi.actualPerformance.toFixed(2)} / 5</span>
                       ) : (
                         <span className="font-semibold">{fmtPct(kpi.actualPerformance)}</span>
                       )}
@@ -295,13 +370,17 @@ export default function ReportsPage() {
 
                     {/* Rating */}
                     <td className="px-4 py-3 text-center border-r border-slate-200">
-                      {kpi.rating === 0 ? (
+                      {kpi.rating === 0 && kpi.actualPerformance === null ? (
                         <span className="text-muted-foreground text-xs">—</span>
+                      ) : kpi.displayType === "score" ? (
+                        <span className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-bold ${ratingStyle(Math.round(kpi.rating))}`}>
+                          {kpi.rating.toFixed(2)} — {ratingLabel(Math.round(kpi.rating)).split(" — ")[1]}
+                        </span>
                       ) : (
                         <span
-                          className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-bold ${ratingStyle(kpi.rating)}`}
+                          className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-bold ${ratingStyle(Math.round(kpi.rating))}`}
                         >
-                          {ratingLabel(kpi.rating)}
+                          {ratingLabel(Math.round(kpi.rating))}
                         </span>
                       )}
                     </td>
@@ -327,8 +406,10 @@ export default function ReportsPage() {
                   </td>
                   <td className="px-4 py-3 text-center border-r border-slate-600" />
                   <td className="px-4 py-3 text-center border-r border-slate-600" />
-                  <td className="px-4 py-3 text-center text-lg">
-                    {report.overallScore.toFixed(2)}
+                  <td className="px-4 py-3 text-center">
+                    <span className={`inline-block rounded-full border px-3 py-1 text-sm font-bold ${ratingStyle(Math.round(report.overallScore))}`}>
+                      {report.overallScore.toFixed(2)} — {ratingLabel(Math.round(report.overallScore)).split(" — ")[1]}
+                    </span>
                   </td>
                 </tr>
 
@@ -345,23 +426,77 @@ export default function ReportsPage() {
             </table>
           </div>
 
+          {/* Opportunities summary */}
+          {(() => {
+            const opps = generateOpportunities(report);
+            return (
+              <div className="rounded-lg border bg-card p-5">
+                <h3 className="font-semibold text-sm mb-3">
+                  Key Opportunities for {selectedEmployee?.name ?? "Employee"}
+                </h3>
+                {opps.length === 0 ? (
+                  <p className="text-sm text-green-700 font-medium">
+                    ✓ Outstanding performance across all KPI categories. Keep up the excellent work!
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {opps.map((opp, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <span className={`mt-0.5 shrink-0 h-2 w-2 rounded-full ${
+                          opp.level === "high"   ? "bg-red-500" :
+                          opp.level === "medium" ? "bg-orange-400" :
+                                                   "bg-yellow-400"
+                        }`} />
+                        <span className={
+                          opp.level === "high"   ? "text-red-700" :
+                          opp.level === "medium" ? "text-orange-700" :
+                                                   "text-yellow-700"
+                        }>
+                          {opp.text}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-3 text-xs text-muted-foreground">
+                  🔴 Needs significant attention &nbsp;·&nbsp;
+                  🟠 Needs improvement &nbsp;·&nbsp;
+                  🟡 Good, room to grow
+                </p>
+              </div>
+            );
+          })()}
+
           {/* Rating legend */}
-          <div className="flex flex-wrap gap-2 mt-1 print:hidden">
-            <span className="text-xs text-muted-foreground mr-1 self-center">Rating scale:</span>
-            {[
-              { r: 5, label: "5 — Outstanding (100%)" },
-              { r: 4, label: "4 — Far Exceeds (90–99%)" },
-              { r: 3, label: "3 — Exceeds (80–89%)" },
-              { r: 2, label: "2 — Meets (70–79%)" },
-              { r: 1, label: "1 — Needs Improv. (<70%)" },
-            ].map(({ r, label }) => (
-              <span
-                key={r}
-                className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingStyle(r)}`}
-              >
-                {label}
-              </span>
-            ))}
+          <div className="flex flex-col gap-2 mt-1 print:hidden">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-muted-foreground w-56">Facility / Timeliness / Task Completion:</span>
+              {[
+                { r: 5, label: "5 (95–100%)" },
+                { r: 4, label: "4 (90–94%)" },
+                { r: 3, label: "3 (85–89%)" },
+                { r: 2, label: "2 (80–84%)" },
+                { r: 1, label: "1 (<80%)" },
+              ].map(({ r, label }) => (
+                <span key={r} className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingStyle(r)}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-muted-foreground w-56">Attendance:</span>
+              {[
+                { r: 5, label: "5 (100%)" },
+                { r: 4, label: "4 (95–99.99%)" },
+                { r: 3, label: "3 (90–94.99%)" },
+                { r: 2, label: "2 (85–89.99%)" },
+                { r: 1, label: "1 (<85%)" },
+              ].map(({ r, label }) => (
+                <span key={r} className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingStyle(r)}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Data breakdown cards */}

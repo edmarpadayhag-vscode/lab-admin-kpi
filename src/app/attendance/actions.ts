@@ -1,8 +1,8 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { attendanceLogs, employees } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { attendanceLogs, employees, employeeSchedules } from "@/lib/db/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { calcLateMinutes, expectedOut, isNonWorkSchedule } from "@/lib/attendance-utils";
 
@@ -111,5 +111,88 @@ export async function deleteAttendanceLog(id: number) {
 
 export async function clearAllAttendanceLogs() {
   await db.delete(attendanceLogs);
+  revalidatePath("/attendance");
+}
+
+export async function upsertEmployeeSchedule(
+  employeeId: number,
+  month: number,
+  year: number,
+  schedule: string,
+  restDays: number[] = [],
+) {
+  await db
+    .insert(employeeSchedules)
+    .values({ employeeId, month, year, schedule, restDays: JSON.stringify(restDays) })
+    .onConflictDoUpdate({
+      target: [employeeSchedules.employeeId, employeeSchedules.month, employeeSchedules.year],
+      set: { schedule, restDays: JSON.stringify(restDays) },
+    });
+  revalidatePath("/attendance");
+}
+
+/** Re-stamp Expected In/Out on all attendance logs for the employee's month
+ *  using the saved monthly schedule and rest days. */
+export async function applyMonthlySchedule(
+  employeeId: number,
+  month: number,
+  year: number,
+) {
+  const [sched] = await db
+    .select()
+    .from(employeeSchedules)
+    .where(and(
+      eq(employeeSchedules.employeeId, employeeId),
+      eq(employeeSchedules.month, month),
+      eq(employeeSchedules.year, year),
+    ))
+    .limit(1);
+
+  if (!sched) return;
+
+  const monthlySchedule = sched.schedule;
+  const restDaySet: number[] = JSON.parse(sched.restDays || "[]");
+
+  const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDayNum = new Date(year, month, 0).getDate();
+  const lastDay   = `${year}-${String(month).padStart(2, "0")}-${String(lastDayNum).padStart(2, "0")}`;
+
+  const logs = await db
+    .select()
+    .from(attendanceLogs)
+    .where(and(
+      eq(attendanceLogs.employeeId, employeeId),
+      gte(attendanceLogs.workDate, firstDay),
+      lte(attendanceLogs.workDate, lastDay),
+    ));
+
+  const KEEP_UNCHANGED = ["PTO", "SL", "H-OFF", "1stHalf Absent", "2ndHalf Absent", "Half Day PTO"];
+
+  for (const log of logs) {
+    if (KEEP_UNCHANGED.includes(log.schedule)) continue;
+
+    // Determine the day-of-week for this log date
+    const [ly, lm, ld] = log.workDate.split("-").map(Number);
+    const dow = new Date(ly, lm - 1, ld).getDay();
+    const isRestDay = restDaySet.includes(dow);
+
+    if (isRestDay) {
+      await db.update(attendanceLogs)
+        .set({ schedule: "OFF", expectedTimeIn: null, expectedTimeOut: null, lateMinutes: 0 })
+        .where(eq(attendanceLogs.id, log.id));
+    } else {
+      const newExpectedOut = expectedOut(monthlySchedule);
+      const newLate = calcLateMinutes(monthlySchedule, log.actualTimeIn);
+      await db.update(attendanceLogs)
+        .set({
+          schedule: monthlySchedule,
+          expectedTimeIn: monthlySchedule,
+          expectedTimeOut: newExpectedOut,
+          lateMinutes: newLate,
+        })
+        .where(eq(attendanceLogs.id, log.id));
+    }
+  }
+
   revalidatePath("/attendance");
 }

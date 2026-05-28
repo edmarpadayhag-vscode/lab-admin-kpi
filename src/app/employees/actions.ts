@@ -8,11 +8,8 @@ import { revalidatePath } from "next/cache";
 export async function createEmployee(data: {
   name: string;
   email: string;
-  role: "employee" | "manager" | "admin";
+  role: "lab_admin" | "trainer" | "qa";
   department: string;
-  expectedTimeIn: string;
-  restDay1: number | null;
-  restDay2: number | null;
 }) {
   await db.insert(employees).values(data);
   revalidatePath("/employees");
@@ -23,11 +20,8 @@ export async function updateEmployee(
   data: {
     name: string;
     email: string;
-    role: "employee" | "manager" | "admin";
+    role: "lab_admin" | "trainer" | "qa";
     department: string;
-    expectedTimeIn: string;
-    restDay1: number | null;
-    restDay2: number | null;
   }
 ) {
   await db.update(employees).set(data).where(eq(employees.id, id));

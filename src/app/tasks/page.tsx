@@ -39,6 +39,13 @@ type ImportResult = {
   errors: { row: number; message: string }[];
 };
 
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+
 const statusColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   pending: "outline",
   in_progress: "default",
@@ -58,7 +65,10 @@ export default function TasksPage() {
   const [isPending, startTransition] = useTransition();
 
   // filter
-  const [filterName, setFilterName] = useState("");
+  const [filterName,  setFilterName]  = useState("");
+  const _now = new Date();
+  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
+  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
 
   // import dialog
   const [importOpen, setImportOpen] = useState(false);
@@ -134,9 +144,15 @@ export default function TasksPage() {
   // ── derived ──────────────────────────────────────────────────────────────────
   const employeeNames = Array.from(new Set(taskList.map((t) => t.assigneeName))).sort();
 
-  const displayed = filterName && filterName !== "all"
-    ? taskList.filter((t) => t.assigneeName === filterName)
-    : taskList;
+  const monthPrefix = `${filterYear}-${filterMonth.padStart(2, "0")}`;
+
+  const displayed = taskList
+    .filter((t) => {
+      if (filterName && filterName !== "all" && t.assigneeName !== filterName) return false;
+      if (!t.dueDate.startsWith(monthPrefix)) return false;
+      return true;
+    })
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   // ── summary metrics (follow the filter) ──────────────────────────────────────
   const totalTasks      = displayed.length;
@@ -274,19 +290,50 @@ export default function TasksPage() {
         ))}
       </div>
 
-      {/* ── employee filter ── */}
-      <div className="flex items-center gap-3 max-w-xs">
-        <Select value={filterName || "all"} onValueChange={(v) => v !== null && setFilterName(v === "all" ? "" : v)}>
-          <SelectTrigger>
-            <SelectValue placeholder="All Employees" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Employees</SelectItem>
-            {employeeNames.map((name) => (
-              <SelectItem key={name} value={name}>{name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* ── filters ── */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label>Employee</Label>
+          <Select value={filterName || "all"} onValueChange={(v) => v !== null && setFilterName(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="All Employees" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Employees</SelectItem>
+              {employeeNames.map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Month</Label>
+          <Select value={filterMonth} onValueChange={(v) => v !== null && setFilterMonth(v)}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MONTH_NAMES.map((name, i) => (
+                <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Year</Label>
+          <Select value={filterYear} onValueChange={(v) => v !== null && setFilterYear(v)}>
+            <SelectTrigger className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {YEAR_OPTIONS.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* ── table ── */}
@@ -313,8 +360,11 @@ export default function TasksPage() {
               </TableCell>
             </TableRow>
           )}
-          {displayed.map((task) => (
-            <TableRow key={task.id}>
+          {displayed.map((task) => {
+            const isDelayed =
+              task.completedDate !== null && task.completedDate > task.dueDate;
+            return (
+            <TableRow key={task.id} className={isDelayed ? "bg-red-50 hover:bg-red-100/70" : ""}>
               <TableCell>{task.startDate}</TableCell>
               <TableCell>{task.dueDate}</TableCell>
               <TableCell>{task.completedDate ?? "—"}</TableCell>
@@ -332,7 +382,8 @@ export default function TasksPage() {
                 </Button>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
 
