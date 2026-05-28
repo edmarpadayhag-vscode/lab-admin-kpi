@@ -292,9 +292,13 @@ export default function AttendancePage() {
 
   function handleClearAll() {
     startTransition(async () => {
-      await clearAllAttendanceLogs();
+      await clearAllAttendanceLogs(
+        Number(filterMonth),
+        Number(filterYear),
+        filterEmployee !== "all" ? Number(filterEmployee) : undefined,
+      );
       await load();
-      setToast("All records cleared");
+      setToast("Records cleared");
     });
   }
 
@@ -351,7 +355,7 @@ export default function AttendancePage() {
     const dow = new Date(y, mo - 1, d).getDay();
     const isRestDay =
       log.schedule !== "PTO" && log.schedule !== "SL" &&
-      log.schedule !== "H-OFF" && log.schedule !== "1stHalf Absent" &&
+      log.schedule !== "Holiday Off" && log.schedule !== "1stHalf Absent" &&
       log.schedule !== "2ndHalf Absent" && log.schedule !== "Half Day PTO" &&
       ((log.restDay1 != null && dow === log.restDay1) ||
        (log.restDay2 != null && dow === log.restDay2));
@@ -359,7 +363,7 @@ export default function AttendancePage() {
     // Fully non-work: skip entirely
     const isFullyNonWork =
       log.schedule === "PTO" || log.schedule === "SL" ||
-      log.schedule === "OFF" || log.schedule === "H-OFF" || isRestDay;
+      log.schedule === "OFF" || log.schedule === "Holiday Off" || isRestDay;
     if (isFullyNonWork) continue;
 
     totalWorkDays++;
@@ -421,16 +425,20 @@ export default function AttendancePage() {
           <AlertDialog>
             <AlertDialogTrigger
               render={
-                <Button variant="outline" disabled={isPending || logs.length === 0}>
+                <Button variant="outline" disabled={isPending || filteredLogs.length === 0}>
                   Clear All
                 </Button>
               }
             />
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete all attendance records?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Clear {filterEmployee !== "all"
+                    ? `${employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"}'s`
+                    : "all employees'"} attendance for {MONTH_NAMES[Number(filterMonth) - 1]} {filterYear}?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete all {logs.length} record{logs.length !== 1 ? "s" : ""}. This action cannot be undone.
+                  This will permanently delete {filteredLogs.length} record{filteredLogs.length !== 1 ? "s" : ""}. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -674,14 +682,14 @@ export default function AttendancePage() {
             const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             const [y, mo, d] = log.workDate.split("-").map(Number);
             const dow = new Date(y, mo - 1, d).getDay(); // local 0=Sun
-            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "H-OFF"
+            const isRestDay = log.schedule !== "PTO" && log.schedule !== "SL" && log.schedule !== "Holiday Off"
               && log.schedule !== "1stHalf Absent" && log.schedule !== "2ndHalf Absent" && log.schedule !== "Half Day PTO" &&
               ((log.restDay1 != null && dow === log.restDay1) ||
                (log.restDay2 != null && dow === log.restDay2));
             const isPTO           = log.schedule === "PTO";
             const isSL            = log.schedule === "SL";
             const isOff           = log.schedule === "OFF";
-            const isHOff          = log.schedule === "H-OFF";
+            const isHOff          = log.schedule === "Holiday Off";
             const is1stHalfAbsent = log.schedule === "1stHalf Absent";
             const is2ndHalfAbsent = log.schedule === "2ndHalf Absent";
             const isHalfPTO       = log.schedule === "Half Day PTO";
@@ -700,7 +708,7 @@ export default function AttendancePage() {
               : isSL
               ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
               : isHOff
-              ? <Badge variant="outline" className="text-green-600 border-green-400">H-OFF</Badge>
+              ? <Badge variant="outline" className="text-green-600 border-green-400">Holiday Off</Badge>
               : is1stHalfAbsent
               ? <div className="flex flex-col gap-0.5">
                   <Badge variant="outline" className="text-orange-600 border-orange-400 w-fit">1stHalf Absent</Badge>

@@ -109,8 +109,22 @@ export async function deleteAttendanceLog(id: number) {
   revalidatePath("/attendance");
 }
 
-export async function clearAllAttendanceLogs() {
-  await db.delete(attendanceLogs);
+export async function clearAllAttendanceLogs(
+  month: number,
+  year: number,
+  employeeId?: number,
+) {
+  const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDayNum = new Date(year, month, 0).getDate();
+  const lastDay   = `${year}-${String(month).padStart(2, "0")}-${String(lastDayNum).padStart(2, "0")}`;
+
+  const conditions = [
+    gte(attendanceLogs.workDate, firstDay),
+    lte(attendanceLogs.workDate, lastDay),
+  ];
+  if (employeeId) conditions.push(eq(attendanceLogs.employeeId, employeeId));
+
+  await db.delete(attendanceLogs).where(and(...conditions));
   revalidatePath("/attendance");
 }
 
@@ -166,7 +180,7 @@ export async function applyMonthlySchedule(
       lte(attendanceLogs.workDate, lastDay),
     ));
 
-  const KEEP_UNCHANGED = ["PTO", "SL", "H-OFF", "1stHalf Absent", "2ndHalf Absent", "Half Day PTO"];
+  const KEEP_UNCHANGED = ["PTO", "SL", "Holiday Off", "1stHalf Absent", "2ndHalf Absent", "Half Day PTO"];
 
   for (const log of logs) {
     if (KEEP_UNCHANGED.includes(log.schedule)) continue;
