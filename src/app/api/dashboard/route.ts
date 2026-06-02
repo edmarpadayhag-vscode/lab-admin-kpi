@@ -3,7 +3,7 @@ import {
   attendanceLogs, tasks, esatFeedback, facilityLogs,
   redditActivity, finalizedModules, employees, kpiScores,
 } from "@/lib/db/schema";
-import { and, eq, gte, lte, ne, count, avg } from "drizzle-orm";
+import { and, eq, gte, lte, ne, count, asc } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -49,9 +49,19 @@ export async function GET(request: NextRequest) {
   const finalizedSet = new Set(finalizedRows.map(r => r.module));
 
   // General stats
-  const [empRow]  = await db.select({ n: count() }).from(employees).where(eq(employees.isActive, true));
-  const [kpiRow]  = await db.select({ a: avg(kpiScores.finalScore) }).from(kpiScores)
-    .where(and(eq(kpiScores.month, month), eq(kpiScores.year, year)));
+  const [empRow] = await db.select({ n: count() }).from(employees).where(eq(employees.isActive, true));
+
+  // Per-employee KPI scores for the period (null if report not yet generated)
+  const empScores = await db
+    .select({ name: employees.name, score: kpiScores.finalScore })
+    .from(employees)
+    .leftJoin(kpiScores, and(
+      eq(kpiScores.employeeId, employees.id),
+      eq(kpiScores.month, month),
+      eq(kpiScores.year, year),
+    ))
+    .where(eq(employees.isActive, true))
+    .orderBy(asc(employees.name));
 
   type ModuleStatus = "complete" | "incomplete" | "no_data";
   function status(hasData: boolean, mod: string): ModuleStatus {
@@ -72,7 +82,10 @@ export async function GET(request: NextRequest) {
     modules: MODULES.map(m => ({ ...m, isFinalized: finalizedSet.has(m.module), status: status(m.hasData, m.module) })),
     stats: {
       activeEmployees: empRow.n,
-      avgKpi: kpiRow.a ? Number(kpiRow.a).toFixed(2) : null,
+      employeeScores: empScores.map(e => ({
+        name:  e.name,
+        score: e.score !== null ? Number(e.score).toFixed(2) : null,
+      })),
     },
   });
 }

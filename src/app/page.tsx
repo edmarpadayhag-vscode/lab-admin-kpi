@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Users, TrendingUp, CheckCircle2, Circle, AlertCircle, ExternalLink } from "lucide-react";
+import { Users, TrendingUp, CheckCircle2, Circle, AlertCircle, ExternalLink, Star } from "lucide-react";
 import Link from "next/link";
 import { saveKpiPeriod, getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
@@ -34,7 +34,7 @@ type DashboardData = {
   modules: ModuleInfo[];
   stats: {
     activeEmployees: number;
-    avgKpi: string | null;
+    employeeScores: { name: string; score: string | null }[];
   };
 };
 
@@ -118,12 +118,26 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card px-5 py-4 flex items-center gap-4">
-          <TrendingUp className="h-8 w-8 text-muted-foreground shrink-0" />
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Avg KPI Score</p>
-            <p className="text-3xl font-bold">{loading ? "—" : (data?.stats.avgKpi ?? "—")}</p>
-            <p className="text-xs text-muted-foreground">{monthLabel} {year}</p>
+        <div className="rounded-lg border bg-card px-5 py-4 flex items-start gap-4">
+          <Star className="h-8 w-8 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-2">KPI Score — {monthLabel} {year}</p>
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : !data?.stats.employeeScores.length ? (
+              <p className="text-sm text-muted-foreground">No employees found.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {data.stats.employeeScores.map(e => (
+                  <li key={e.name} className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium truncate">{e.name}</span>
+                    <span className={`text-sm font-bold tabular-nums shrink-0 ${e.score ? "text-foreground" : "text-muted-foreground"}`}>
+                      {e.score ?? "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
