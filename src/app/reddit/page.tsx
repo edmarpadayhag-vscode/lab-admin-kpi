@@ -6,12 +6,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { upsertRedditWeek } from "./actions";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { upsertRedditWeek, clearRedditMonth } from "./actions";
 
 function calcActivityScore(replyCount: number): number {
   if (replyCount >= 3) return 5;
   if (replyCount === 2) return 3;
-  return 1; // 0 or 1 entries
+  if (replyCount === 1) return 2;
+  return 1; // 0 replies
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -22,53 +28,104 @@ const MONTH_NAMES = [
 ];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
-const ROWS_PER_WEEK = 5;
-const TOTAL_WEEKS   = 5;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type Employee = { id: number; name: string; isActive: boolean };
-
-type LinkPair = { post: string; reply: string };
-
-type WeekState = {
-  weekNumber: number;
-  isActive: boolean;
-  links: LinkPair[];
-};
+type Employee  = { id: number; name: string; isActive: boolean };
+type Entry     = { date: string; post: string; reply: string; resolved: string };
+type WeekState = { weekNumber: number; isActive: boolean; links: Entry[] };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function parseLinks(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [raw];
-  } catch {
-    return raw ? [raw] : [];
-  }
+function monthFirstDay(month: number, year: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+}
+function monthLastDay(month: number, year: number): string {
+  const d = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function weeksInRange(start: string, end: string): number {
+  const s = new Date(start + "T00:00:00.000Z");
+  const e = new Date(end   + "T00:00:00.000Z");
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return 5;
+  const days = Math.floor((e.getTime() - s.getTime()) / 86400000) + 1;
+  return Math.min(Math.max(Math.ceil(days / 7), 1), 5);
+}
+const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function weekRangeLabel(weekNum: number, startStr: string): string {
+  const MS = 86400000;
+  const s  = new Date(startStr + "T00:00:00.000Z");
+  const wS = new Date(s.getTime() + (weekNum - 1) * 7 * MS);
+  const wE = new Date(s.getTime() +  weekNum      * 7 * MS - MS);
+  return `${SHORT_MONTHS[wS.getUTCMonth()]} ${wS.getUTCDate()} – ${SHORT_MONTHS[wE.getUTCMonth()]} ${wE.getUTCDate()}`;
 }
 
-function emptyWeeks(): WeekState[] {
-  return Array.from({ length: TOTAL_WEEKS }, (_, i) => ({
+function blankEntry(): Entry {
+  return { date: "", post: "", reply: "", resolved: "" };
+}
+
+function emptyWeeks(count: number): WeekState[] {
+  return Array.from({ length: count }, (_, i) => ({
     weekNumber: i + 1,
-    isActive:   true,
-    links: Array.from({ length: ROWS_PER_WEEK }, () => ({ post: "", reply: "" })),
+    isActive:   false,
+    links:      [blankEntry()],
   }));
+}
+
+/**
+ * Parses the stored redditPostLink JSON into an Entry[].
+ * Handles both the new format [{date,post,reply}] and the old string[] format.
+ */
+function parseEntries(raw: string | null | undefined, rawReply: string | null | undefined): Entry[] {
+  if (!raw) return [blankEntry()];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [blankEntry()];
+    if (typeof parsed[0] === "object" && parsed[0] !== null) {
+      return (parsed as Partial<Entry>[]).map(e => ({
+        date:     String(e.date     ?? ""),
+        post:     String(e.post     ?? ""),
+        reply:    String(e.reply    ?? ""),
+        resolved: String(e.resolved ?? ""),
+      }));
+    }
+    // Old format: string[] for posts + separate replyLink string[]
+    let replies: string[] = [];
+    try { replies = JSON.parse(rawReply ?? "[]"); } catch { /* ok */ }
+    return (parsed as string[]).map((post, i) => ({
+      date:     "",
+      post:     String(post       ?? ""),
+      reply:    String(replies[i] ?? ""),
+      resolved: "",
+    }));
+  } catch {
+    return [blankEntry()];
+  }
 }
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function RedditPage() {
   const _now = new Date();
-  const [employees,       setEmployees]       = useState<Employee[]>([]);
-  const [employeeId,      setEmployeeId]       = useState("");
-  const [filterMonth,     setFilterMonth]      = useState(String(_now.getMonth() + 1));
-  const [filterYear,      setFilterYear]       = useState(String(_now.getFullYear()));
-  const [weeks,          setWeeks]          = useState<WeekState[]>(emptyWeeks());
+  const [employees,      setEmployees]      = useState<Employee[]>([]);
+  const [employeeId,     setEmployeeId]     = useState("");
+  const [filterMonth,    setFilterMonth]    = useState(String(_now.getMonth() + 1));
+  const [filterYear,     setFilterYear]     = useState(String(_now.getFullYear()));
+  const [startOverride,  setStartOverride]  = useState<string>("");
+  const [endOverride,    setEndOverride]    = useState<string>("");
+  // Derive effective dates from overrides or the selected month/year
+  const startDate = startOverride || monthFirstDay(parseInt(filterMonth), parseInt(filterYear));
+  const endDate   = endOverride   || monthLastDay(parseInt(filterMonth), parseInt(filterYear));
+  const [weeks,          setWeeks]          = useState<WeekState[]>(
+    emptyWeeks(weeksInRange(startDate, endDate))
+  );
   const [savingWeek,     setSavingWeek]     = useState<number | null>(null);
-  // Weeks whose data exists in the DB — show "Edit" button instead of "Save"
   const [persistedWeeks, setPersistedWeeks] = useState<Set<number>>(new Set());
+  const [reloadKey,      setReloadKey]      = useState(0);
+  const [importing,      setImporting]      = useState(false);
+  const [importResult,   setImportResult]   = useState<{ ok: boolean; message: string } | null>(null);
+  const [clearing,       setClearing]       = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
 
   // Load employees
@@ -76,41 +133,103 @@ export default function RedditPage() {
     fetch("/api/employees")
       .then(r => r.json())
       .then((data: Employee[]) => {
-        const active = data.filter((e) => e.isActive !== false);
+        const active = data.filter(e => e.isActive !== false);
         setEmployees(active);
         if (active.length > 0) setEmployeeId(String(active[0].id));
       });
   }, []);
 
-  // Load reddit data when employee / month / year changes
+  // Reset date overrides when the month/year filter changes
+  useEffect(() => {
+    setStartOverride("");
+    setEndOverride("");
+  }, [filterMonth, filterYear]);
+
+  // Load reddit data
   useEffect(() => {
     if (!employeeId) return;
+    const count = weeksInRange(startDate, endDate);
     fetch(`/api/reddit?employeeId=${employeeId}&month=${filterMonth}&year=${filterYear}`)
       .then(r => r.json())
-      .then((rows: {
-        weekNumber: number;
-        isActive: boolean;
-        redditPostLink: string | null;
-        replyLink: string | null;
-      }[]) => {
-        const base = emptyWeeks();
+      .then((rows: { weekNumber: number; isActive: boolean; redditPostLink: string | null; replyLink: string | null }[]) => {
+        const base = emptyWeeks(count);
         for (const row of rows) {
           const wi = row.weekNumber - 1;
-          if (wi < 0 || wi >= TOTAL_WEEKS) continue;
-          const postArr  = parseLinks(row.redditPostLink);
-          const replyArr = parseLinks(row.replyLink);
-          const links = Array.from({ length: ROWS_PER_WEEK }, (_, ri) => ({
-            post:  postArr[ri]  ?? "",
-            reply: replyArr[ri] ?? "",
-          }));
-          base[wi] = { weekNumber: row.weekNumber, isActive: row.isActive, links };
+          if (wi < 0 || wi >= count) continue;
+          base[wi] = {
+            weekNumber: row.weekNumber,
+            isActive:   row.isActive,
+            links:      parseEntries(row.redditPostLink, row.replyLink),
+          };
         }
         setWeeks(base);
         setPersistedWeeks(new Set(rows.map(r => r.weekNumber - 1)));
       });
-  }, [employeeId, filterMonth, filterYear]);
+  }, [employeeId, filterMonth, filterYear, reloadKey, startDate, endDate]);
 
-  // ── Save helpers ─────────────────────────────────────────────────────────────
+  // ── Clear ─────────────────────────────────────────────────────────────────────
+
+  async function handleClear() {
+    if (!employeeId) return;
+    setClearing(true);
+    try {
+      await clearRedditMonth({
+        employeeId: parseInt(employeeId),
+        month:      parseInt(filterMonth),
+        year:       parseInt(filterYear),
+      });
+      setWeeks(emptyWeeks(weeksInRange(startDate, endDate)));
+      setPersistedWeeks(new Set());
+      setImportResult(null);
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  // ── Import ────────────────────────────────────────────────────────────────────
+
+  async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("startDate", startDate);
+    form.append("endDate",   endDate);
+    try {
+      const res  = await fetch("/api/reddit/import", { method: "POST", body: form });
+      const data = await res.json() as {
+        inserted?: number;
+        skipped?:  number;
+        error?:    string;
+        months?:   { month: number; year: number }[];
+      };
+      if (!res.ok) {
+        setImportResult({ ok: false, message: data.error ?? "Import failed" });
+      } else {
+        // Auto-switch the month/year filter to match the imported data
+        if (data.months && data.months.length > 0) {
+          const { month, year } = data.months[0];
+          setFilterMonth(String(month));
+          setFilterYear(String(year));
+        }
+        const skippedNote = (data.skipped ?? 0) > 0 ? `, ${data.skipped} skipped` : "";
+        const monthNote   = data.months?.[0]
+          ? ` (${MONTH_NAMES[data.months[0].month - 1]} ${data.months[0].year})`
+          : "";
+        setImportResult({ ok: true, message: `Imported ${data.inserted ?? 0} entries${monthNote}${skippedNote}` });
+        setReloadKey(k => k + 1);
+      }
+    } catch {
+      setImportResult({ ok: false, message: "Network error — check your connection and try again" });
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────────────
 
   function saveWeek(weekIdx: number, week: WeekState) {
     if (!employeeId) return;
@@ -122,17 +241,16 @@ export default function RedditPage() {
         year:       parseInt(filterYear),
         weekNumber: week.weekNumber,
         isActive:   week.isActive,
-        postLinks:  week.links.map(l => l.post),
-        replyLinks: week.links.map(l => l.reply),
+        entries:    week.links,
       });
       setSavingWeek(null);
       setPersistedWeeks(prev => new Set(prev).add(weekIdx));
     });
   }
 
-  // ── Field change handlers ─────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────────────
 
-  function handleLinkChange(wi: number, ri: number, field: "post" | "reply", val: string) {
+  function handleEntryChange(wi: number, ri: number, field: keyof Entry, val: string) {
     setWeeks(prev =>
       prev.map((w, i) => i === wi
         ? { ...w, links: w.links.map((l, j) => j === ri ? { ...l, [field]: val } : l) }
@@ -141,13 +259,18 @@ export default function RedditPage() {
     );
   }
 
+  function addRow(wi: number) {
+    setWeeks(prev => prev.map((w, i) => i === wi ? { ...w, links: [...w.links, blankEntry()] } : w));
+    setPersistedWeeks(prev => { const s = new Set(prev); s.delete(wi); return s; });
+  }
+
   function toggleActive(wi: number) {
     const newIsActive = !weeks[wi].isActive;
     setWeeks(prev => prev.map((w, i) => i === wi ? { ...w, isActive: newIsActive } : w));
     saveWeek(wi, { ...weeks[wi], isActive: newIsActive });
   }
 
-  // ── Derived scores ────────────────────────────────────────────────────────────
+  // ── Scores ────────────────────────────────────────────────────────────────────
 
   const weekRatings = weeks.map(w => {
     const replyCount = w.links.filter(l => l.reply.trim()).length;
@@ -156,13 +279,10 @@ export default function RedditPage() {
 
   const activeWeeks = weeks.filter(w => w.isActive);
   const redditScore = activeWeeks.length > 0
-    ? activeWeeks.reduce((sum, w, _i) => {
-        const idx = weeks.indexOf(w);
-        return sum + weekRatings[idx];
-      }, 0) / activeWeeks.length
+    ? activeWeeks.reduce((sum, w) => sum + weekRatings[weeks.indexOf(w)], 0) / activeWeeks.length
     : 0;
 
-  const selectedEmp = employees.find(e => String(e.id) === employeeId);
+  const inputCls = "h-7 text-xs border-0 border-transparent shadow-none ring-0 outline-none bg-transparent focus-visible:ring-0 focus-visible:outline-none focus-visible:border-b focus-visible:border-slate-400 rounded-none p-0 px-1 placeholder:text-transparent focus-visible:placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50";
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -178,7 +298,7 @@ export default function RedditPage() {
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1.5">
           <Label>Employee</Label>
-          <Select value={employeeId} onValueChange={(v) => v !== null && setEmployeeId(v)}>
+          <Select value={employeeId} onValueChange={v => v !== null && setEmployeeId(v)}>
             <SelectTrigger className="w-52">
               <SelectValue placeholder="Select employee…">
                 {(v: string | null) => {
@@ -197,10 +317,8 @@ export default function RedditPage() {
 
         <div className="flex flex-col gap-1.5">
           <Label>Month</Label>
-          <Select value={filterMonth} onValueChange={(v) => v !== null && setFilterMonth(v)}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
+          <Select value={filterMonth} onValueChange={v => v !== null && setFilterMonth(v)}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               {MONTH_NAMES.map((name, i) => (
                 <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
@@ -211,10 +329,8 @@ export default function RedditPage() {
 
         <div className="flex flex-col gap-1.5">
           <Label>Year</Label>
-          <Select value={filterYear} onValueChange={(v) => v !== null && setFilterYear(v)}>
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
+          <Select value={filterYear} onValueChange={v => v !== null && setFilterYear(v)}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               {YEAR_OPTIONS.map(y => (
                 <SelectItem key={y} value={String(y)}>{y}</SelectItem>
@@ -222,77 +338,145 @@ export default function RedditPage() {
             </SelectContent>
           </Select>
         </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Start Date</Label>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={e => setStartOverride(e.target.value)}
+            className="w-36 h-9 text-sm"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>End Date</Label>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={e => setEndOverride(e.target.value)}
+            className="w-36 h-9 text-sm"
+          />
+        </div>
+
+        {/* Import */}
+        <div className="flex flex-col gap-1.5">
+          <Label>&nbsp;</Label>
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileImport}
+            />
+            <Button
+              variant="outline"
+              disabled={importing}
+              onClick={() => { setImportResult(null); fileInputRef.current?.click(); }}
+            >
+              {importing ? "Importing…" : "Import File"}
+            </Button>
+
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    variant="destructive"
+                    disabled={clearing || persistedWeeks.size === 0}
+                  />
+                }
+              >
+                {clearing ? "Clearing…" : "Clear"}
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear all data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all Reddit activity for{" "}
+                    <strong>{MONTH_NAMES[parseInt(filterMonth) - 1]} {filterYear}</strong> for the selected employee.
+                    This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={handleClear}>
+                    Clear
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {importResult && (
+              <span className={`text-sm ${importResult.ok ? "text-green-600" : "text-red-600"}`}>
+                {importResult.message}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Reddit Score widget */}
+      {/* Score widgets */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-lg border bg-card px-5 py-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
-            Reddit Score
-          </span>
-          <span className="text-3xl font-bold">
-            {activeWeeks.length > 0 ? redditScore.toFixed(2) : "—"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            Average rating of active weeks
-          </span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Reddit Score</span>
+          <span className="text-3xl font-bold">{activeWeeks.length > 0 ? redditScore.toFixed(2) : "—"}</span>
+          <span className="text-xs text-muted-foreground">Average rating of active weeks</span>
         </div>
         <div className="rounded-lg border bg-card px-5 py-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
-            Active Weeks
-          </span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Active Weeks</span>
           <span className="text-3xl font-bold">{activeWeeks.length}</span>
-          <span className="text-xs text-muted-foreground">
-            of {weeks.length} total weeks
-          </span>
+          <span className="text-xs text-muted-foreground">of {weeks.length} total weeks</span>
         </div>
         <div className="rounded-lg border bg-card px-5 py-4 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
-            Score Guide
-          </span>
-          <span className="text-sm font-medium mt-0.5">≥ 3 replies → 5</span>
-          <span className="text-xs text-muted-foreground">2 replies → 3 · &lt;2 replies → 1</span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Score Guide</span>
+          <span className="text-sm font-medium mt-0.5">≥ 3 → 5 · 2 → 3</span>
+          <span className="text-xs text-muted-foreground">1 → 2 · 0 → 1</span>
         </div>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm border-collapse">
-          {/* Header */}
           <thead>
             <tr className="bg-slate-700 text-white">
-              <th className="px-4 py-3 text-left font-bold w-28 border-r border-slate-500">Weeks</th>
-              <th className="px-4 py-3 text-center font-bold w-28 border-r border-slate-500">Active Week</th>
-              <th className="px-4 py-3 text-center font-bold border-r border-slate-500">Original Reddit Link</th>
-              <th className="px-4 py-3 text-center font-bold border-r border-slate-500">Link to your reply</th>
+              <th className="px-4 py-3 text-left font-bold w-24 border-r border-slate-500">Weeks</th>
+              <th className="px-4 py-3 text-center font-bold w-24 border-r border-slate-500">Active Week</th>
+              <th className="px-4 py-3 text-center font-bold w-32 border-r border-slate-500">Date</th>
+              <th className="px-4 py-3 text-center font-bold border-r border-slate-500">Original Thread</th>
+              <th className="px-4 py-3 text-center font-bold border-r border-slate-500">Reply Thread</th>
+              <th className="px-4 py-3 text-center font-bold w-36 border-r border-slate-500">Resolved?</th>
               <th className="px-4 py-3 text-center font-bold w-20">Rating</th>
             </tr>
           </thead>
 
           <tbody>
-            {weeks.map((week, wi) => (
-              Array.from({ length: ROWS_PER_WEEK }, (_, ri) => {
+            {weeks.map((week, wi) => {
+              const rowCount = week.links.length;
+              const bgClass  = wi % 2 === 0 ? "bg-white" : "bg-slate-50/50";
+
+              return week.links.map((entry, ri) => {
                 const isFirstRow = ri === 0;
-                const isLastRow  = ri === ROWS_PER_WEEK - 1;
+                const isLastRow  = ri === rowCount - 1;
                 const rowBorder  = isLastRow ? "border-b-2 border-slate-300" : "border-b border-slate-100";
-                const bgClass    = wi % 2 === 0 ? "bg-white" : "bg-slate-50/50";
 
                 return (
                   <tr key={`${wi}-${ri}`} className={`${bgClass} ${rowBorder}`}>
-                    {/* Week label — first row only */}
+                    {/* Week label */}
                     {isFirstRow && (
                       <td
-                        rowSpan={ROWS_PER_WEEK}
-                        className="px-4 py-2 font-semibold align-middle border-r border-slate-200 whitespace-nowrap"
+                        rowSpan={rowCount}
+                        className="px-4 py-2 align-middle border-r border-slate-200 whitespace-nowrap"
                       >
-                        Week {week.weekNumber}
+                        <div className="font-semibold">Week {week.weekNumber}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{weekRangeLabel(week.weekNumber, startDate)}</div>
                       </td>
                     )}
 
-                    {/* Active Week toggle — first row only */}
+                    {/* Active toggle */}
                     {isFirstRow && (
                       <td
-                        rowSpan={ROWS_PER_WEEK}
+                        rowSpan={rowCount}
                         className="px-4 py-2 text-center align-middle border-r border-slate-200"
                       >
                         <button
@@ -308,32 +492,54 @@ export default function RedditPage() {
                       </td>
                     )}
 
-                    {/* Original Reddit Link */}
+                    {/* Date */}
                     <td className={`px-2 py-1 border-r border-slate-200 ${!week.isActive ? "bg-muted/40" : ""}`}>
                       <Input
-                        value={week.links[ri].post}
-                        onChange={e => handleLinkChange(wi, ri, "post", e.target.value)}
-                        placeholder={week.isActive ? "https://www.reddit.com/…" : ""}
+                        type="date"
+                        value={entry.date}
+                        onChange={e => handleEntryChange(wi, ri, "date", e.target.value)}
                         disabled={!week.isActive}
-                        className="h-7 text-xs border-0 border-transparent shadow-none ring-0 outline-none bg-transparent focus-visible:ring-0 focus-visible:outline-none focus-visible:border-b focus-visible:border-slate-400 rounded-none p-0 px-1 placeholder:text-transparent focus-visible:placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className={inputCls}
                       />
                     </td>
 
-                    {/* Link to your reply */}
+                    {/* Original Thread */}
                     <td className={`px-2 py-1 border-r border-slate-200 ${!week.isActive ? "bg-muted/40" : ""}`}>
                       <Input
-                        value={week.links[ri].reply}
-                        onChange={e => handleLinkChange(wi, ri, "reply", e.target.value)}
+                        value={entry.post}
+                        onChange={e => handleEntryChange(wi, ri, "post", e.target.value)}
                         placeholder={week.isActive ? "https://www.reddit.com/…" : ""}
                         disabled={!week.isActive}
-                        className="h-7 text-xs border-0 border-transparent shadow-none ring-0 outline-none bg-transparent focus-visible:ring-0 focus-visible:outline-none focus-visible:border-b focus-visible:border-slate-400 rounded-none p-0 px-1 placeholder:text-transparent focus-visible:placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className={inputCls}
                       />
                     </td>
 
-                    {/* Rating + Save — first row only */}
+                    {/* Reply Thread */}
+                    <td className={`px-2 py-1 border-r border-slate-200 ${!week.isActive ? "bg-muted/40" : ""}`}>
+                      <Input
+                        value={entry.reply}
+                        onChange={e => handleEntryChange(wi, ri, "reply", e.target.value)}
+                        placeholder={week.isActive ? "https://www.reddit.com/…" : ""}
+                        disabled={!week.isActive}
+                        className={inputCls}
+                      />
+                    </td>
+
+                    {/* Resolved? */}
+                    <td className={`px-2 py-1 border-r border-slate-200 ${!week.isActive ? "bg-muted/40" : ""}`}>
+                      <Input
+                        value={entry.resolved}
+                        onChange={e => handleEntryChange(wi, ri, "resolved", e.target.value)}
+                        placeholder={week.isActive ? "e.g. Yes / No Confirmation" : ""}
+                        disabled={!week.isActive}
+                        className={inputCls}
+                      />
+                    </td>
+
+                    {/* Rating + Save */}
                     {isFirstRow && (
                       <td
-                        rowSpan={ROWS_PER_WEEK}
+                        rowSpan={rowCount}
                         className="px-3 py-2 text-center align-middle"
                       >
                         <div className="flex flex-col items-center gap-2">
@@ -345,13 +551,9 @@ export default function RedditPage() {
                               size="sm"
                               variant="secondary"
                               className="h-7 px-3 text-xs w-full"
-                              onClick={() =>
-                                setPersistedWeeks(prev => {
-                                  const s = new Set(prev);
-                                  s.delete(wi);
-                                  return s;
-                                })
-                              }
+                              onClick={() => setPersistedWeeks(prev => {
+                                const s = new Set(prev); s.delete(wi); return s;
+                              })}
                             >
                               Edit
                             </Button>
@@ -366,14 +568,21 @@ export default function RedditPage() {
                               {savingWeek === wi ? "Saving…" : "Save"}
                             </Button>
                           )}
+                          {week.isActive && (
+                            <button
+                              onClick={() => addRow(wi)}
+                              className="text-xs text-slate-400 hover:text-slate-600 mt-1"
+                            >
+                              + row
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}
                   </tr>
                 );
-              })
-            ))}
-
+              });
+            })}
           </tbody>
         </table>
       </div>

@@ -8,7 +8,8 @@ import { revalidatePath } from "next/cache";
 function calcActivityScore(replyCount: number): number {
   if (replyCount >= 3) return 5;
   if (replyCount === 2) return 3;
-  return 1; // 0 or 1 entries
+  if (replyCount === 1) return 2;
+  return 1; // 0 replies
 }
 
 export async function upsertRedditWeek(input: {
@@ -17,24 +18,29 @@ export async function upsertRedditWeek(input: {
   year: number;
   weekNumber: number;
   isActive: boolean;
-  postLinks: string[];
-  replyLinks: string[];
+  entries: { date: string; post: string; reply: string; resolved: string }[];
 }) {
-  const cleanPost  = input.postLinks.map(l => l.trim()).filter(Boolean);
-  const cleanReply = input.replyLinks.map(l => l.trim()).filter(Boolean);
-  const replyCount   = cleanReply.length;
+  const cleanEntries = input.entries
+    .map(e => ({ date: e.date.trim(), post: e.post.trim(), reply: e.reply.trim(), resolved: e.resolved.trim() }))
+    .filter(e => e.post || e.reply);
+
+  const replyCount    = cleanEntries.filter(e => e.reply).length;
   const activityScore = input.isActive ? calcActivityScore(replyCount) : 0;
+
+  // Store as [{date,post,reply}] in redditPostLink; keep replyLink for backward compat
+  const entriesJson  = JSON.stringify(cleanEntries);
+  const replyLinks   = JSON.stringify(cleanEntries.map(e => e.reply));
 
   await db
     .insert(redditActivity)
     .values({
-      employeeId:    input.employeeId,
-      month:         input.month,
-      year:          input.year,
-      weekNumber:    input.weekNumber,
-      isActive:      input.isActive,
-      redditPostLink: JSON.stringify(cleanPost),
-      replyLink:      JSON.stringify(cleanReply),
+      employeeId:     input.employeeId,
+      month:          input.month,
+      year:           input.year,
+      weekNumber:     input.weekNumber,
+      isActive:       input.isActive,
+      redditPostLink: entriesJson,
+      replyLink:      replyLinks,
       replyCount,
       activityScore,
     })
@@ -47,11 +53,26 @@ export async function upsertRedditWeek(input: {
       ],
       set: {
         isActive:       input.isActive,
-        redditPostLink: JSON.stringify(cleanPost),
-        replyLink:      JSON.stringify(cleanReply),
+        redditPostLink: entriesJson,
+        replyLink:      replyLinks,
         replyCount,
         activityScore,
       },
     });
+  revalidatePath("/reddit");
+}
+
+export async function clearRedditMonth(input: {
+  employeeId: number;
+  month:      number;
+  year:       number;
+}) {
+  await db
+    .delete(redditActivity)
+    .where(and(
+      eq(redditActivity.employeeId, input.employeeId),
+      eq(redditActivity.month,      input.month),
+      eq(redditActivity.year,       input.year),
+    ));
   revalidatePath("/reddit");
 }
