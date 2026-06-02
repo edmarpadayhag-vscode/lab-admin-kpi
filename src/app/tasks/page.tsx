@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Upload } from "lucide-react";
 import { deleteTask, clearAllTasks } from "./actions";
+import { useFinalized } from "@/hooks/use-finalized";
+import { FinalizeButton } from "@/components/finalize-button";
 
 type Task = {
   id: number;
@@ -69,6 +71,7 @@ export default function TasksPage() {
   const _now = new Date();
   const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+  const { isFinalized, finalizing, finalize, unfinalize } = useFinalized("tasks", filterMonth, filterYear);
 
   // import dialog
   const [importOpen, setImportOpen] = useState(false);
@@ -182,11 +185,12 @@ export default function TasksPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <FinalizeButton isFinalized={isFinalized} finalizing={finalizing} month={filterMonth} year={filterYear} onFinalize={finalize} onUnfinalize={unfinalize} />
           {/* Clear All */}
           <AlertDialog>
             <AlertDialogTrigger
               render={
-                <Button variant="outline" disabled={isPending || taskList.length === 0}>
+                <Button variant="outline" disabled={isPending || isFinalized || taskList.length === 0}>
                   Clear All
                 </Button>
               }
@@ -209,7 +213,7 @@ export default function TasksPage() {
 
           {/* Import */}
           <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
-            <DialogTrigger render={<Button><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+            <DialogTrigger render={<Button disabled={isFinalized}><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
             <DialogContent>
               <DialogHeader><DialogTitle>Import Tasks from Excel</DialogTitle></DialogHeader>
               <form onSubmit={handleImport} className="space-y-4">
@@ -377,7 +381,7 @@ export default function TasksPage() {
                 </Badge>
               </TableCell>
               <TableCell>
-                <Button size="icon" variant="ghost" onClick={() => handleDelete(task.id)} disabled={isPending}>
+                <Button size="icon" variant="ghost" onClick={() => handleDelete(task.id)} disabled={isPending || isFinalized}>
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </TableCell>

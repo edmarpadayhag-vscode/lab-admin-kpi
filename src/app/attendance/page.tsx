@@ -17,6 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Upload, Pencil } from "lucide-react";
 import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs, upsertEmployeeSchedule, applyMonthlySchedule } from "./actions";
+import { useFinalized } from "@/hooks/use-finalized";
+import { FinalizeButton } from "@/components/finalize-button";
 import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
@@ -219,6 +221,7 @@ export default function AttendancePage() {
   const [monthlySchedule, setMonthlySchedule] = useState<string>("08:00");
   const [restDays,         setRestDays]         = useState<number[]>([]);
   const [isApplying,       setIsApplying]        = useState(false);
+  const { isFinalized, finalizing, finalize, unfinalize } = useFinalized("attendance", filterMonth, filterYear);
 
   const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -421,11 +424,12 @@ export default function AttendancePage() {
           <h1 className="text-2xl font-bold">Attendance</h1>
         </div>
         <div className="flex gap-2">
+          <FinalizeButton isFinalized={isFinalized} finalizing={finalizing} month={filterMonth} year={filterYear} onFinalize={finalize} onUnfinalize={unfinalize} />
           {/* Clear All */}
           <AlertDialog>
             <AlertDialogTrigger
               render={
-                <Button variant="outline" disabled={isPending || filteredLogs.length === 0}>
+                <Button variant="outline" disabled={isPending || isFinalized || filteredLogs.length === 0}>
                   Clear All
                 </Button>
               }
@@ -452,7 +456,7 @@ export default function AttendancePage() {
 
           {/* Import dialog */}
           <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
-            <DialogTrigger render={<Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+            <DialogTrigger render={<Button variant="outline" disabled={isFinalized}><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
             <DialogContent>
               <DialogHeader><DialogTitle>Import Attendance from Excel</DialogTitle></DialogHeader>
               <form onSubmit={handleImport} className="space-y-4">
@@ -608,7 +612,7 @@ export default function AttendancePage() {
           {/* Save & Apply button */}
           <Button
             onClick={handleSaveAndApply}
-            disabled={isApplying}
+            disabled={isApplying || isFinalized}
             className="gap-2"
           >
             {isApplying ? "Applying…" : "Save & Apply"}
@@ -771,10 +775,10 @@ export default function AttendancePage() {
                   : (log.remarks ?? "—")}
               </TableCell>
               <TableCell className="flex gap-1">
-                <Button size="icon" variant="ghost" onClick={() => setEditing(log)} disabled={isPending}>
+                <Button size="icon" variant="ghost" onClick={() => setEditing(log)} disabled={isPending || isFinalized}>
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending}>
+                <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending || isFinalized}>
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </TableCell>

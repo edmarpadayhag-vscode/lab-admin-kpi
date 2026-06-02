@@ -12,6 +12,8 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { upsertRedditWeek, clearRedditMonth } from "./actions";
+import { useFinalized } from "@/hooks/use-finalized";
+import { FinalizeButton } from "@/components/finalize-button";
 
 function calcActivityScore(replyCount: number): number {
   if (replyCount >= 3) return 5;
@@ -142,6 +144,7 @@ export default function RedditPage() {
   const [savingWeek,     setSavingWeek]     = useState<number | null>(null);
   const [persistedWeeks, setPersistedWeeks] = useState<Set<number>>(new Set());
   const [reloadKey,      setReloadKey]      = useState(0);
+  const { isFinalized, finalizing, finalize, unfinalize } = useFinalized("reddit", filterMonth, filterYear);
   const [importing,      setImporting]      = useState(false);
   const [importResult,   setImportResult]   = useState<{ ok: boolean; message: string } | null>(null);
   const [clearing,       setClearing]       = useState(false);
@@ -390,6 +393,7 @@ export default function RedditPage() {
         <div className="flex flex-col gap-1.5">
           <Label>&nbsp;</Label>
           <div className="flex items-center gap-3">
+            <FinalizeButton isFinalized={isFinalized} finalizing={finalizing} month={filterMonth} year={filterYear} onFinalize={finalize} onUnfinalize={unfinalize} />
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
@@ -399,7 +403,7 @@ export default function RedditPage() {
             />
             <Button
               variant="outline"
-              disabled={importing}
+              disabled={importing || isFinalized}
               onClick={() => { setImportResult(null); fileInputRef.current?.click(); }}
             >
               {importing ? "Importing…" : "Import File"}
@@ -410,7 +414,7 @@ export default function RedditPage() {
                 render={
                   <Button
                     variant="destructive"
-                    disabled={clearing || persistedWeeks.size === 0}
+                    disabled={clearing || isFinalized || persistedWeeks.size === 0}
                   />
                 }
               >
@@ -507,8 +511,9 @@ export default function RedditPage() {
                         className="px-4 py-2 text-center align-middle border-r border-slate-200"
                       >
                         <button
-                          onClick={() => toggleActive(wi)}
-                          className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                          onClick={() => !isFinalized && toggleActive(wi)}
+                          disabled={isFinalized}
+                          className={`px-3 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                             week.isActive
                               ? "bg-green-100 text-green-700 hover:bg-green-200"
                               : "bg-red-100 text-red-600 hover:bg-red-200"
@@ -578,6 +583,7 @@ export default function RedditPage() {
                               size="sm"
                               variant="secondary"
                               className="h-7 px-3 text-xs w-full"
+                              disabled={isFinalized}
                               onClick={() => setPersistedWeeks(prev => {
                                 const s = new Set(prev); s.delete(wi); return s;
                               })}
@@ -589,13 +595,13 @@ export default function RedditPage() {
                               size="sm"
                               variant="outline"
                               className="h-7 px-3 text-xs w-full"
-                              disabled={savingWeek === wi}
+                              disabled={savingWeek === wi || isFinalized}
                               onClick={() => saveWeek(wi, weeks[wi])}
                             >
                               {savingWeek === wi ? "Saving…" : "Save"}
                             </Button>
                           )}
-                          {week.isActive && (
+                          {week.isActive && !isFinalized && (
                             <button
                               onClick={() => addRow(wi)}
                               className="text-xs text-slate-400 hover:text-slate-600 mt-1"

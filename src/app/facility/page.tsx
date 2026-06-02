@@ -22,6 +22,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { CalendarOff, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { clearAllFacilityLogs, createFacilityLog, deleteFacilityLog, markDayNoWork, unmarkDayNoWork, updateFacilityLog } from "./actions";
+import { useFinalized } from "@/hooks/use-finalized";
+import { FinalizeButton } from "@/components/finalize-button";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +101,7 @@ export default function FacilityPage() {
   const numberOfDays  = countableWeekdays.length;
   const missedDays    = countableWeekdays.filter(d => !logsByDate.has(d.date)).length;
   const facilityRate  = numberOfDays > 0 ? (numberOfDays - missedDays) / numberOfDays : 0;
+  const { isFinalized, finalizing, finalize, unfinalize } = useFinalized("facility", filterMonth, filterYear);
   const [removeProof, setRemoveProof] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -219,11 +222,11 @@ export default function FacilityPage() {
           <h1 className="text-2xl font-bold">Facility</h1>
         </div>
         <div className="flex items-center gap-2">
-
+          <FinalizeButton isFinalized={isFinalized} finalizing={finalizing} month={filterMonth} year={filterYear} onFinalize={finalize} onUnfinalize={unfinalize} />
         <AlertDialog>
           <AlertDialogTrigger
             render={
-              <Button variant="outline" disabled={monthLogs.length === 0 || isPending}>
+              <Button variant="outline" disabled={monthLogs.length === 0 || isPending || isFinalized}>
                 <Trash2 className="mr-2 h-4 w-4" />Clear All
               </Button>
             }
@@ -250,7 +253,7 @@ export default function FacilityPage() {
             if (!o) resetImport();
           }}
         >
-          <DialogTrigger render={<Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+          <DialogTrigger render={<Button variant="outline" disabled={isFinalized}><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
           <DialogContent>
             <DialogHeader><DialogTitle>Import Facility Logs from Excel</DialogTitle></DialogHeader>
             <form onSubmit={handleImport} className="space-y-4">
@@ -312,7 +315,7 @@ export default function FacilityPage() {
             </form>
           </DialogContent>
         </Dialog>
-        <Button onClick={() => { setPrefillDate(""); setFormError(null); setOpen(true); }}>
+        <Button onClick={() => { setPrefillDate(""); setFormError(null); setOpen(true); }} disabled={isFinalized}>
           <Plus className="mr-2 h-4 w-4" />Log Check
         </Button>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setPrefillDate(""); }}>
@@ -518,7 +521,7 @@ export default function FacilityPage() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        disabled={isPending}
+                        disabled={isPending || isFinalized}
                         aria-label="Add entry"
                         onClick={() => {
                           setPrefillDate(date);
@@ -532,7 +535,7 @@ export default function FacilityPage() {
                         size="sm"
                         variant="ghost"
                         className="h-7 text-xs text-muted-foreground"
-                        disabled={isPending}
+                        disabled={isPending || isFinalized}
                         aria-label="Mark as No Work"
                         onClick={() => startTransition(async () => {
                           await markDayNoWork(date);
@@ -575,11 +578,11 @@ export default function FacilityPage() {
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
                     {log.source === "manual" && (
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(log)} disabled={isPending} aria-label="Edit">
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(log)} disabled={isPending || isFinalized} aria-label="Edit">
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending} aria-label="Delete">
+                    <Button size="icon" variant="ghost" onClick={() => handleDelete(log.id)} disabled={isPending || isFinalized} aria-label="Delete">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>

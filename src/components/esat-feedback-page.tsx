@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowDown, ArrowUp, ArrowUpDown, Star, Trash2, Eraser, Upload } from "lucide-react";
 import { deleteEsatFeedback, clearEsatFeedback } from "@/app/esat/actions";
+import { useFinalized } from "@/hooks/use-finalized";
+import { FinalizeButton } from "@/components/finalize-button";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +92,8 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
   // sort
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const { isFinalized, finalizing, finalize, unfinalize } = useFinalized(`esat-${esatType}`, filterMonth, filterYear);
 
   // clear dialog
   const [clearOpen, setClearOpen] = useState(false);
@@ -234,10 +238,11 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <FinalizeButton isFinalized={isFinalized} finalizing={finalizing} month={filterMonth} year={filterYear} onFinalize={finalize} onUnfinalize={unfinalize} />
           {/* ── Clear ── */}
           <Dialog open={clearOpen} onOpenChange={setClearOpen}>
             <DialogTrigger render={
-              <Button variant="outline" disabled={feedback.length === 0}>
+              <Button variant="outline" disabled={isFinalized || feedback.length === 0}>
                 <Eraser className="mr-2 h-4 w-4" />Clear
               </Button>
             } />
@@ -263,7 +268,7 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
 
           {/* ── Import ── */}
           <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) resetImport(); }}>
-          <DialogTrigger render={<Button><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
+          <DialogTrigger render={<Button disabled={isFinalized}><Upload className="mr-2 h-4 w-4" />Import Excel</Button>} />
           <DialogContent>
             <DialogHeader><DialogTitle>Import {LABELS[esatType]} from Excel</DialogTitle></DialogHeader>
             <form onSubmit={handleImport} className="space-y-4">
@@ -588,7 +593,7 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
                   size="icon"
                   variant="ghost"
                   onClick={() => handleDelete(fb.id)}
-                  disabled={isPending}
+                  disabled={isPending || isFinalized}
                   aria-label="Delete"
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />

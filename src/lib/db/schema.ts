@@ -176,6 +176,20 @@ export const redditActivity = pgTable(
   (t) => [unique().on(t.employeeId, t.month, t.year, t.weekNumber)]
 );
 
+// ─── Finalized Modules ───────────────────────────────────────────────────────
+
+export const finalizedModules = pgTable(
+  "finalized_modules",
+  {
+    id:          serial("id").primaryKey(),
+    module:      varchar("module", { length: 64 }).notNull(),
+    month:       integer("month").notNull(),
+    year:        integer("year").notNull(),
+    finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.module, t.month, t.year)]
+);
+
 // ─── KPI Scores (computed monthly) ───────────────────────────────────────────
 
 export const kpiScores = pgTable(
