@@ -213,7 +213,7 @@ export default function AttendancePage() {
 
   // filters
   const _now = new Date();
-  const [filterEmployee, setFilterEmployee] = useState("all");
+  const [filterEmployee, setFilterEmployee] = useState("");
   const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
 
@@ -227,7 +227,7 @@ export default function AttendancePage() {
 
   // Load monthly schedule + rest days whenever employee / month / year changes
   useEffect(() => {
-    if (filterEmployee === "all") { setMonthlySchedule("08:00"); setRestDays([]); return; }
+    if (!filterEmployee) { setMonthlySchedule("08:00"); setRestDays([]); return; }
     fetch(`/api/employee-schedules?employeeId=${filterEmployee}&month=${filterMonth}&year=${filterYear}`)
       .then(r => r.json())
       .then(({ schedule, restDays: rd }: { schedule: string | null; restDays: number[] }) => {
@@ -243,7 +243,7 @@ export default function AttendancePage() {
   }
 
   async function handleSaveAndApply() {
-    if (filterEmployee === "all") return;
+    if (!filterEmployee) return;
     setIsApplying(true);
     await upsertEmployeeSchedule(Number(filterEmployee), Number(filterMonth), Number(filterYear), monthlySchedule, restDays);
     await applyMonthlySchedule(Number(filterEmployee), Number(filterMonth), Number(filterYear));
@@ -273,7 +273,9 @@ export default function AttendancePage() {
       fetch("/api/employees").then((r) => r.json()),
     ]);
     setLogs(logsRes);
-    setEmployees(empRes.filter((e: Employee) => e.isActive));
+    const active: Employee[] = empRes.filter((e: Employee) => e.isActive);
+    setEmployees(active);
+    setFilterEmployee(prev => prev || (active[0] ? String(active[0].id) : ""));
   }
 
   useEffect(() => { load(); }, []);
@@ -298,7 +300,7 @@ export default function AttendancePage() {
       await clearAllAttendanceLogs(
         Number(filterMonth),
         Number(filterYear),
-        filterEmployee !== "all" ? Number(filterEmployee) : undefined,
+        filterEmployee ? Number(filterEmployee) : undefined,
       );
       await load();
       setToast("Records cleared");
@@ -342,7 +344,7 @@ export default function AttendancePage() {
   const monthPrefix = `${filterYear}-${String(Number(filterMonth)).padStart(2, "0")}`;
   const filteredLogs = logs.filter((l) => {
     const matchesMonth    = l.workDate.startsWith(monthPrefix);
-    const matchesEmployee = filterEmployee === "all" || l.employeeId === Number(filterEmployee);
+    const matchesEmployee = !filterEmployee || l.employeeId === Number(filterEmployee);
     return matchesMonth && matchesEmployee;
   });
 
@@ -444,9 +446,7 @@ export default function AttendancePage() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  Clear {filterEmployee !== "all"
-                    ? `${employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"}'s`
-                    : "all employees'"} attendance for {MONTH_NAMES[Number(filterMonth) - 1]} {filterYear}?
+                  Clear {employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"}'s attendance for {MONTH_NAMES[Number(filterMonth) - 1]} {filterYear}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   This will permanently delete {filteredLogs.length} record{filteredLogs.length !== 1 ? "s" : ""}. This action cannot be undone.
@@ -532,13 +532,10 @@ export default function AttendancePage() {
           <Select value={filterEmployee} onValueChange={(v) => v !== null && setFilterEmployee(v)}>
             <SelectTrigger className="w-48">
               <SelectValue>
-                {filterEmployee === "all"
-                  ? "All employees"
-                  : employees.find((e) => String(e.id) === filterEmployee)?.name ?? "All employees"}
+                {employees.find((e) => String(e.id) === filterEmployee)?.name ?? "Select employee…"}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All employees</SelectItem>
               {employees.map((e) => (
                 <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
               ))}
@@ -575,7 +572,7 @@ export default function AttendancePage() {
       </div>
 
       {/* Monthly Schedule + Rest Days — only when a specific employee is selected */}
-      {filterEmployee !== "all" && (
+      {!!filterEmployee && (
         <div className="flex flex-wrap items-end gap-6 rounded-lg border bg-card px-5 py-4">
           {/* Schedule picker */}
           <div className="flex flex-col gap-1.5">
@@ -684,7 +681,7 @@ export default function AttendancePage() {
               <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                 {logs.length === 0
                   ? "No attendance records yet. Add manually or import a CSV."
-                  : `No records for ${filterEmployee !== "all" ? `${employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"} in ` : ""}${MONTH_NAMES[Number(filterMonth) - 1]} ${filterYear}.`}
+                  : `No records for ${employees.find(e => String(e.id) === filterEmployee)?.name ?? "selected employee"} in ${MONTH_NAMES[Number(filterMonth) - 1]} ${filterYear}.`}
               </TableCell>
             </TableRow>
           )}
