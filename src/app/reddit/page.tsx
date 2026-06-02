@@ -105,14 +105,34 @@ function parseEntries(raw: string | null | undefined, rawReply: string | null | 
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
+function lsRangeKey(month: string, year: string) {
+  return `reddit-range-${year}-${month}`;
+}
+function lsLoadRange(month: string, year: string): { start: string; end: string } {
+  try {
+    const raw = localStorage.getItem(lsRangeKey(month, year));
+    if (raw) {
+      const { start, end } = JSON.parse(raw) as { start?: string; end?: string };
+      return { start: start ?? "", end: end ?? "" };
+    }
+  } catch { /* ok */ }
+  return { start: "", end: "" };
+}
+function lsSaveRange(month: string, year: string, start: string, end: string) {
+  try { localStorage.setItem(lsRangeKey(month, year), JSON.stringify({ start, end })); } catch { /* ok */ }
+}
+
 export default function RedditPage() {
   const _now = new Date();
+  const _m   = String(_now.getMonth() + 1);
+  const _y   = String(_now.getFullYear());
   const [employees,      setEmployees]      = useState<Employee[]>([]);
   const [employeeId,     setEmployeeId]     = useState("");
-  const [filterMonth,    setFilterMonth]    = useState(String(_now.getMonth() + 1));
-  const [filterYear,     setFilterYear]     = useState(String(_now.getFullYear()));
-  const [startOverride,  setStartOverride]  = useState<string>("");
-  const [endOverride,    setEndOverride]    = useState<string>("");
+  const [filterMonth,    setFilterMonth]    = useState(_m);
+  const [filterYear,     setFilterYear]     = useState(_y);
+  // Initialise from localStorage so values survive tab navigation
+  const [startOverride,  setStartOverride]  = useState<string>(() => lsLoadRange(_m, _y).start);
+  const [endOverride,    setEndOverride]    = useState<string>(() => lsLoadRange(_m, _y).end);
   // Derive effective dates from overrides or the selected month/year
   const startDate = startOverride || monthFirstDay(parseInt(filterMonth), parseInt(filterYear));
   const endDate   = endOverride   || monthLastDay(parseInt(filterMonth), parseInt(filterYear));
@@ -139,10 +159,11 @@ export default function RedditPage() {
       });
   }, []);
 
-  // Reset date overrides when the month/year filter changes
+  // When month/year changes, load any previously saved dates from localStorage
   useEffect(() => {
-    setStartOverride("");
-    setEndOverride("");
+    const { start, end } = lsLoadRange(filterMonth, filterYear);
+    setStartOverride(start);
+    setEndOverride(end);
   }, [filterMonth, filterYear]);
 
   // Load reddit data
@@ -344,7 +365,10 @@ export default function RedditPage() {
           <Input
             type="date"
             value={startDate}
-            onChange={e => setStartOverride(e.target.value)}
+            onChange={e => {
+              setStartOverride(e.target.value);
+              lsSaveRange(filterMonth, filterYear, e.target.value, endOverride);
+            }}
             className="w-36 h-9 text-sm"
           />
         </div>
@@ -354,7 +378,10 @@ export default function RedditPage() {
           <Input
             type="date"
             value={endDate}
-            onChange={e => setEndOverride(e.target.value)}
+            onChange={e => {
+              setEndOverride(e.target.value);
+              lsSaveRange(filterMonth, filterYear, startOverride, e.target.value);
+            }}
             className="w-36 h-9 text-sm"
           />
         </div>
