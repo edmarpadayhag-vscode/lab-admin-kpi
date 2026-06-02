@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Users, TrendingUp, CheckCircle2, Circle, AlertCircle, ExternalLink, Star } from "lucide-react";
+import { Users, CheckCircle2, Circle, AlertCircle, ExternalLink, Star } from "lucide-react";
 import Link from "next/link";
 import { saveKpiPeriod, getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
@@ -30,11 +30,13 @@ type ModuleInfo = {
   status: ModuleStatus;
 };
 
+type EmpScore = { id: number; name: string; storedScore: string | null };
+
 type DashboardData = {
   modules: ModuleInfo[];
   stats: {
     activeEmployees: number;
-    employeeScores: { name: string; score: string | null }[];
+    employeeScores: EmpScore[];
   };
 };
 
@@ -43,8 +45,10 @@ type DashboardData = {
 export default function DashboardPage() {
   const [month, setMonth] = useState(getStoredMonth);
   const [year,  setYear]  = useState(getStoredYear);
-  const [data,  setData]  = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data,        setData]        = useState<DashboardData | null>(null);
+  const [loading,     setLoading]     = useState(false);
+  const [liveScores,  setLiveScores]  = useState<Map<number, string | null>>(new Map());
+  const [fetchingLive,setFetchingLive]= useState(false);
 
   // Persist period changes and re-fetch
   function handleMonthChange(v: string) {
@@ -59,11 +63,29 @@ export default function DashboardPage() {
   useEffect(() => {
     setLoading(true);
     setData(null);
+    setLiveScores(new Map());
     fetch(`/api/dashboard?month=${month}&year=${year}`)
       .then(r => r.json())
       .then((d: DashboardData) => setData(d))
       .finally(() => setLoading(false));
   }, [month, year]);
+
+  // Fetch live KPI scores for employees who don't have a stored report yet
+  useEffect(() => {
+    if (!data) return;
+    const needsLive = data.stats.employeeScores.filter(e => e.storedScore === null);
+    if (needsLive.length === 0) { setLiveScores(new Map()); return; }
+    setFetchingLive(true);
+    Promise.all(
+      needsLive.map(e =>
+        fetch(`/api/kpi-report?employeeId=${e.id}&month=${month}&year=${year}`)
+          .then(r => r.json())
+          .then((d: { overallScore?: number }) =>
+            [e.id, d.overallScore != null ? d.overallScore.toFixed(2) : null] as [number, string | null])
+          .catch(() => [e.id, null] as [number, string | null])
+      )
+    ).then(pairs => { setLiveScores(new Map(pairs)); setFetchingLive(false); });
+  }, [data, month, year]);
 
   const monthLabel = MONTH_NAMES[Number(month) - 1] ?? "";
   const pending    = data?.modules.filter(m => m.status !== "complete") ?? [];
@@ -128,14 +150,21 @@ export default function DashboardPage() {
               <p className="text-sm text-muted-foreground">No employees found.</p>
             ) : (
               <ul className="space-y-1.5">
-                {data.stats.employeeScores.map(e => (
-                  <li key={e.name} className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium truncate">{e.name}</span>
-                    <span className={`text-sm font-bold tabular-nums shrink-0 ${e.score ? "text-foreground" : "text-muted-foreground"}`}>
-                      {e.score ?? "—"}
-                    </span>
-                  </li>
-                ))}
+                {data.stats.employeeScores.map(e => {
+                  const isFinal = e.storedScore !== null;
+                  const score   = isFinal ? e.storedScore : (liveScores.get(e.id) ?? null);
+                  const tag     = isFinal ? "(Final)" : fetchingLive ? "…" : "(Incomplete)";
+                  return (
+                    <li key={e.id} className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium truncate">{e.name}</span>
+                      <span className="text-sm shrink-0 text-right">
+                        <span className="font-bold tabular-nums">{score ?? "—"}</span>
+                        {" "}
+                        <span className={`text-xs font-normal ${isFinal ? "text-green-600" : "text-orange-500"}`}>{tag}</span>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

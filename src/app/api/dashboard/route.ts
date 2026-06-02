@@ -51,9 +51,9 @@ export async function GET(request: NextRequest) {
   // General stats
   const [empRow] = await db.select({ n: count() }).from(employees).where(eq(employees.isActive, true));
 
-  // Per-employee KPI scores for the period (null if report not yet generated)
+  // Per-employee KPI scores for the period (storedScore = null if report not yet generated)
   const empScores = await db
-    .select({ name: employees.name, score: kpiScores.finalScore })
+    .select({ id: employees.id, name: employees.name, storedScore: kpiScores.finalScore })
     .from(employees)
     .leftJoin(kpiScores, and(
       eq(kpiScores.employeeId, employees.id),
@@ -83,8 +83,9 @@ export async function GET(request: NextRequest) {
     stats: {
       activeEmployees: empRow.n,
       employeeScores: empScores.map(e => ({
-        name:  e.name,
-        score: e.score !== null ? Number(e.score).toFixed(2) : null,
+        id:          e.id,
+        name:        e.name,
+        storedScore: e.storedScore !== null ? Number(e.storedScore).toFixed(2) : null,
       })),
     },
   });
