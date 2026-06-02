@@ -36,6 +36,9 @@ type KpiReport = {
   meta: {
     totalWorkDays: number;
     presentDays: number;
+    absences: number;
+    lateUndertimeCount: number;
+    lateUndertimeMinutes: number;
     totalTasks: number;
     completedTasks: number;
     totalFacility: number;
@@ -119,8 +122,14 @@ function generateOpportunities(report: KpiReport): Opportunity[] {
       if (pct === null) {
         items.push({ text: "Attendance: No attendance records found. Ensure attendance logs are being submitted for this period.", level: "high" });
       } else {
-        const absent = report.meta.totalWorkDays - report.meta.presentDays;
-        items.push({ text: `Attendance (${fmt(pct)}%): ${absent} absence${absent !== 1 ? "s" : ""} recorded out of ${report.meta.totalWorkDays} work days. Consistent attendance directly impacts team productivity.`, level });
+        const { absences, lateUndertimeCount, lateUndertimeMinutes, totalWorkDays } = report.meta;
+        const parts: string[] = [];
+        if (absences > 0)
+          parts.push(`${absences} absence${absences !== 1 ? "s" : ""}`);
+        if (lateUndertimeCount > 0)
+          parts.push(`${lateUndertimeCount} late/undertime instance${lateUndertimeCount !== 1 ? "s" : ""} (${lateUndertimeMinutes} min total)`);
+        const detail = parts.length > 0 ? parts.join(" and ") : "no absences or late/undertime";
+        items.push({ text: `Attendance (${fmt(pct)}%): ${detail} out of ${totalWorkDays} work days. Consistent attendance directly impacts team productivity.`, level });
       }
     } else if (label === "Agents ESAT (Staff)") {
       if (pct === null) {

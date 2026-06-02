@@ -128,9 +128,10 @@ export async function GET(request: NextRequest) {
       lte(attendanceLogs.workDate, lastDay),
     ));
 
-  let totalWorkDays        = 0;
-  let totalWorkMin         = 0;
-  let totalAbsences        = 0;
+  let totalWorkDays         = 0;
+  let totalWorkMin          = 0;
+  let totalAbsences         = 0;
+  let lateUndertimeCount    = 0;
   let totalLateUndertimeMin = 0;
 
   for (const log of attLogs) {
@@ -158,13 +159,13 @@ export async function GET(request: NextRequest) {
     if (log.schedule === "1stHalf Absent") {
       totalWorkMin += 9 * 60;
       const ut = minutesDiff(log.expectedTimeIn, log.actualTimeIn) ?? 0;
-      if (ut > 0) totalLateUndertimeMin += ut;
+      if (ut > 0) { lateUndertimeCount++; totalLateUndertimeMin += ut; }
       continue;
     }
     if (log.schedule === "2ndHalf Absent") {
       totalWorkMin += 9 * 60;
       const ut = minutesDiff(log.actualTimeOut, log.expectedTimeOut) ?? 0;
-      if (ut > 0) totalLateUndertimeMin += ut;
+      if (ut > 0) { lateUndertimeCount++; totalLateUndertimeMin += ut; }
       continue;
     }
     if (log.schedule === "Half Day PTO") {
@@ -182,7 +183,7 @@ export async function GET(request: NextRequest) {
     }
     const late = log.lateMinutes ?? 0;
     const ut   = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
-    totalLateUndertimeMin += late + ut;
+    if (late > 0 || ut > 0) { lateUndertimeCount++; totalLateUndertimeMin += late + ut; }
   }
 
   const totalAbsenceMin = totalAbsences * 9 * 60;
@@ -357,6 +358,9 @@ export async function GET(request: NextRequest) {
     meta: {
       totalWorkDays,
       presentDays,
+      absences:            totalAbsences,
+      lateUndertimeCount,
+      lateUndertimeMinutes: totalLateUndertimeMin,
       totalTasks,
       completedTasks: totalCompleted,
       totalFacility: countableWeekdays,
