@@ -6,6 +6,13 @@ import { isNonWorkSchedule } from "@/lib/attendance-utils";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
+function calcRedditScore(replyCount: number): number {
+  if (replyCount >= 3) return 5;
+  if (replyCount === 2) return 3;
+  if (replyCount === 1) return 2;
+  return 1;
+}
+
 function isBlankTime(t: string | null | undefined): boolean {
   return !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
 }
@@ -212,7 +219,7 @@ export async function GET(request: NextRequest) {
 
   // ── 5. Reddit ────────────────────────────────────────────────────────────────
   const redditLogs = await db
-    .select({ activityScore: redditActivity.activityScore, isActive: redditActivity.isActive })
+    .select({ replyCount: redditActivity.replyCount, isActive: redditActivity.isActive })
     .from(redditActivity)
     .where(and(
       eq(redditActivity.employeeId, employeeId),
@@ -221,9 +228,10 @@ export async function GET(request: NextRequest) {
     ));
 
   const activeReddit = redditLogs.filter(r => r.isActive);
-  // Raw avg activity score (0–5)
+  // Recompute from replyCount using the current formula so the score always
+  // matches the Reddit tab, regardless of what was stored at import time.
   const redditScore: number | null = activeReddit.length > 0
-    ? activeReddit.reduce((s, r) => s + r.activityScore, 0) / activeReddit.length
+    ? activeReddit.reduce((s, r) => s + calcRedditScore(r.replyCount), 0) / activeReddit.length
     : null;
 
   // ── Build KPI rows ───────────────────────────────────────────────────────────
