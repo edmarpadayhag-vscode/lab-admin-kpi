@@ -24,6 +24,7 @@ import { CalendarOff, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { clearAllFacilityLogs, createFacilityLog, deleteFacilityLog, markDayNoWork, unmarkDayNoWork, updateFacilityLog } from "./actions";
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -62,13 +63,12 @@ export default function FacilityPage() {
   const [editing, setEditing] = useState<Log | null>(null);
 
   // Month / year filter
-  const _now = new Date();
-  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
-  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+  const [filterMonth, setFilterMonth] = useState(getStoredMonth);
+  const [filterYear,  setFilterYear]  = useState(getStoredYear);
 
   // ── Derived month stats ────────────────────────────────────────────────────
-  const selY = parseInt(filterYear)  || _now.getFullYear();
-  const selM = parseInt(filterMonth) || (_now.getMonth() + 1);
+  const selY = parseInt(filterYear)  || new Date().getFullYear();
+  const selM = parseInt(filterMonth) || (new Date().getMonth() + 1);
   const daysInMonth = new Date(selY, selM, 0).getDate();
 
   // All days in the selected month

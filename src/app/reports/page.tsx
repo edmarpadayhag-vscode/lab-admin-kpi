@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart3, Printer, RefreshCw } from "lucide-react";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -170,8 +171,8 @@ function fmtWeight(w: number): string {
 export default function ReportsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState<string>("");
-  const [month, setMonth]           = useState<string>(String(new Date().getMonth() + 1));
-  const [year,  setYear]            = useState<string>(String(CURRENT_YEAR));
+  const [month, setMonth]           = useState<string>(getStoredMonth);
+  const [year,  setYear]            = useState<string>(getStoredYear);
 
   const [report,  setReport]  = useState<KpiReport | null>(null);
   const [loading, setLoading] = useState(false);

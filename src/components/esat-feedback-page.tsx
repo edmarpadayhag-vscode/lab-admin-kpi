@@ -13,6 +13,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Star, Trash2, Eraser, Upload } from "l
 import { deleteEsatFeedback, clearEsatFeedback } from "@/app/esat/actions";
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,9 +86,8 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
   const [isPending, startTransition] = useTransition();
 
   // month / year filter
-  const _now = new Date();
-  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
-  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+  const [filterMonth, setFilterMonth] = useState(getStoredMonth);
+  const [filterYear,  setFilterYear]  = useState(getStoredYear);
 
   // sort
   const [sortKey, setSortKey] = useState<SortKey | null>(null);

@@ -14,6 +14,7 @@ import {
 import { upsertRedditWeek, clearRedditMonth } from "./actions";
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
 function calcActivityScore(replyCount: number): number {
   if (replyCount >= 3) return 5;
@@ -125,16 +126,13 @@ function lsSaveRange(month: string, year: string, start: string, end: string) {
 }
 
 export default function RedditPage() {
-  const _now = new Date();
-  const _m   = String(_now.getMonth() + 1);
-  const _y   = String(_now.getFullYear());
   const [employees,      setEmployees]      = useState<Employee[]>([]);
   const [employeeId,     setEmployeeId]     = useState("");
-  const [filterMonth,    setFilterMonth]    = useState(_m);
-  const [filterYear,     setFilterYear]     = useState(_y);
+  const [filterMonth,    setFilterMonth]    = useState(getStoredMonth);
+  const [filterYear,     setFilterYear]     = useState(getStoredYear);
   // Initialise from localStorage so values survive tab navigation
-  const [startOverride,  setStartOverride]  = useState<string>(() => lsLoadRange(_m, _y).start);
-  const [endOverride,    setEndOverride]    = useState<string>(() => lsLoadRange(_m, _y).end);
+  const [startOverride,  setStartOverride]  = useState<string>(() => lsLoadRange(getStoredMonth(), getStoredYear()).start);
+  const [endOverride,    setEndOverride]    = useState<string>(() => lsLoadRange(getStoredMonth(), getStoredYear()).end);
   // Derive effective dates from overrides or the selected month/year
   const startDate = startOverride || monthFirstDay(parseInt(filterMonth), parseInt(filterYear));
   const endDate   = endOverride   || monthLastDay(parseInt(filterMonth), parseInt(filterYear));

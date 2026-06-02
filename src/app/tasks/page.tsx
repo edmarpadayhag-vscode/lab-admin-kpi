@@ -18,6 +18,7 @@ import { Trash2, Upload } from "lucide-react";
 import { deleteTask, clearAllTasks } from "./actions";
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 
 type Task = {
   id: number;
@@ -68,9 +69,8 @@ export default function TasksPage() {
 
   // filter
   const [filterName,  setFilterName]  = useState("");
-  const _now = new Date();
-  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
-  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+  const [filterMonth, setFilterMonth] = useState(getStoredMonth);
+  const [filterYear,  setFilterYear]  = useState(getStoredYear);
   const { isFinalized, finalizing, finalize, unfinalize } = useFinalized("tasks", filterMonth, filterYear);
 
   // import dialog

@@ -19,6 +19,7 @@ import { Trash2, Upload, Pencil } from "lucide-react";
 import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs, upsertEmployeeSchedule, applyMonthlySchedule } from "./actions";
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
+import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
 import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
@@ -212,10 +213,9 @@ export default function AttendancePage() {
   const [isPending, startTransition] = useTransition();
 
   // filters
-  const _now = new Date();
   const [filterEmployee, setFilterEmployee] = useState("");
-  const [filterMonth, setFilterMonth] = useState(String(_now.getMonth() + 1));
-  const [filterYear,  setFilterYear]  = useState(String(_now.getFullYear()));
+  const [filterMonth, setFilterMonth] = useState(getStoredMonth);
+  const [filterYear,  setFilterYear]  = useState(getStoredYear);
 
   // Monthly schedule + rest days for the selected employee + month/year
   const [monthlySchedule, setMonthlySchedule] = useState<string>("08:00");
