@@ -331,6 +331,10 @@ export default function FacilityPage() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="timeSubmitted">Time</Label>
+                <Input id="timeSubmitted" name="timeSubmitted" type="time" />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="personnelPresent">Personnel Present</Label>
                 <Input id="personnelPresent" name="personnelPresent" placeholder="Name(s) present" />
               </div>
@@ -594,6 +598,15 @@ export default function FacilityPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="edit-date">Date</Label>
                 <Input id="edit-date" name="date" type="date" defaultValue={editing.date} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-timeSubmitted">Time</Label>
+                <Input
+                  id="edit-timeSubmitted"
+                  name="timeSubmitted"
+                  type="time"
+                  defaultValue={editing.timeSubmitted ? editing.timeSubmitted.slice(0, 5) : ""}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-personnelPresent">Personnel Present</Label>

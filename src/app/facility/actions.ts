@@ -43,16 +43,18 @@ async function deleteProofImage(url: string | null) {
 }
 
 function readManualFields(form: FormData) {
-  const date = String(form.get("date") ?? "").trim();
-  const submittedByRaw = form.get("submittedBy");
+  const date             = String(form.get("date")             ?? "").trim();
+  const timeSubmitted    = String(form.get("timeSubmitted")    ?? "").trim();
+  const submittedByRaw   = form.get("submittedBy");
   const personnelPresent = String(form.get("personnelPresent") ?? "").trim();
-  const remarks = String(form.get("remarks") ?? "").trim();
+  const remarks          = String(form.get("remarks")          ?? "").trim();
   if (!date) throw new Error("Date is required");
   return {
     date,
-    submittedBy: submittedByRaw && String(submittedByRaw) !== "" ? Number(submittedByRaw) : null,
+    timeSubmitted:   timeSubmitted || null,
+    submittedBy:     submittedByRaw && String(submittedByRaw) !== "" ? Number(submittedByRaw) : null,
     personnelPresent: personnelPresent || null,
-    remarks: remarks || null,
+    remarks:         remarks || null,
   };
 }
 
