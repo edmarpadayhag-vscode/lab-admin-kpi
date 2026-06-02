@@ -1,8 +1,8 @@
 import { db } from "@/lib/db";
-import { attendanceLogs, tasks, facilityLogs, esatFeedback, redditActivity } from "@/lib/db/schema";
+import { attendanceLogs, employees, tasks, facilityLogs, esatFeedback, redditActivity } from "@/lib/db/schema";
 import { and, eq, gte, lte, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
-import { isNonWorkSchedule } from "@/lib/attendance-utils";
+import { isNonWorkSchedule, calcUndertimeMinutes } from "@/lib/attendance-utils";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,20 @@ function calcRedditScore(replyCount: number): number {
 
 function isBlankTime(t: string | null | undefined): boolean {
   return !t || t.trim() === "" || /^0+[:0]*$/.test(t.trim());
+}
+
+function toMin(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function minutesDiff(from: string | null | undefined, to: string | null | undefined): number | null {
+  const f = toMin(from), t = toMin(to);
+  if (f === null || t === null) return null;
+  const diff = t - f;
+  return diff < 0 ? diff + 1440 : diff;
 }
 
 /** Get ISO week number (1–53) for a Date. */
@@ -88,12 +102,24 @@ export async function GET(request: NextRequest) {
   const startTs  = new Date(year, month - 1, 1, 0, 0, 0);
   const endTs    = new Date(year, month, 0, 23, 59, 59, 999);
 
-  // ── 1. Attendance ────────────────────────────────────────────────────────────
+  // ── 1. Attendance ─────────────────────────────────────────────────────────────
+  // Mirrors the exact formula used by the Attendance tab's overallPct widget:
+  //   score = (totalWorkMin − absenceMin − lateUndertimeMin) / totalWorkMin × 100
+  const [empForAtt] = await db
+    .select({ restDay1: employees.restDay1, restDay2: employees.restDay2 })
+    .from(employees)
+    .where(eq(employees.id, employeeId))
+    .limit(1);
+
   const attLogs = await db
     .select({
-      schedule:      attendanceLogs.schedule,
-      actualTimeIn:  attendanceLogs.actualTimeIn,
-      actualTimeOut: attendanceLogs.actualTimeOut,
+      schedule:        attendanceLogs.schedule,
+      workDate:        attendanceLogs.workDate,
+      expectedTimeIn:  attendanceLogs.expectedTimeIn,
+      expectedTimeOut: attendanceLogs.expectedTimeOut,
+      actualTimeIn:    attendanceLogs.actualTimeIn,
+      actualTimeOut:   attendanceLogs.actualTimeOut,
+      lateMinutes:     attendanceLogs.lateMinutes,
     })
     .from(attendanceLogs)
     .where(and(
@@ -102,16 +128,60 @@ export async function GET(request: NextRequest) {
       lte(attendanceLogs.workDate, lastDay),
     ));
 
-  let totalWorkDays = 0;
-  let presentDays   = 0;
+  let totalWorkDays        = 0;
+  let totalWorkMin         = 0;
+  let totalAbsences        = 0;
+  let totalLateUndertimeMin = 0;
+
   for (const log of attLogs) {
-    if (isNonWorkSchedule(log.schedule)) continue;
+    const [y, mo, d] = log.workDate.split("-").map(Number);
+    const dow = new Date(y, mo - 1, d).getDay();
+    const isRestDay =
+      !isNonWorkSchedule(log.schedule) &&
+      ((empForAtt?.restDay1 != null && dow === empForAtt.restDay1) ||
+       (empForAtt?.restDay2 != null && dow === empForAtt.restDay2));
+
+    const isFullyNonWork =
+      log.schedule === "PTO"         || log.schedule === "SL"  ||
+      log.schedule === "OFF"         || log.schedule === "Holiday Off" || isRestDay;
+    if (isFullyNonWork) continue;
+
     totalWorkDays++;
-    const absent = isBlankTime(log.actualTimeIn) && isBlankTime(log.actualTimeOut);
-    if (!absent) presentDays++;
+
+    if (log.schedule === "1stHalf Absent") {
+      totalWorkMin += 9 * 60;
+      const ut = minutesDiff(log.expectedTimeIn, log.actualTimeIn) ?? 0;
+      if (ut > 0) totalLateUndertimeMin += ut;
+      continue;
+    }
+    if (log.schedule === "2ndHalf Absent") {
+      totalWorkMin += 9 * 60;
+      const ut = minutesDiff(log.actualTimeOut, log.expectedTimeOut) ?? 0;
+      if (ut > 0) totalLateUndertimeMin += ut;
+      continue;
+    }
+    if (log.schedule === "Half Day PTO") {
+      const outMin = toMin(log.actualTimeOut);
+      const inMin  = toMin(log.actualTimeIn) ?? toMin(log.expectedTimeIn);
+      totalWorkMin += (outMin !== null && inMin !== null) ? Math.max(0, outMin - inMin) : 0;
+      continue;
+    }
+
+    // Regular work day
+    totalWorkMin += 9 * 60;
+    if (isBlankTime(log.actualTimeIn) && isBlankTime(log.actualTimeOut)) {
+      totalAbsences++;
+      continue;
+    }
+    const late = log.lateMinutes ?? 0;
+    const ut   = calcUndertimeMinutes(log.expectedTimeOut, log.actualTimeOut);
+    totalLateUndertimeMin += late + ut;
   }
-  const attendancePct: number | null = totalWorkDays > 0
-    ? (presentDays / totalWorkDays) * 100
+
+  const totalAbsenceMin = totalAbsences * 9 * 60;
+  const presentDays     = totalWorkDays - totalAbsences;
+  const attendancePct: number | null = totalWorkMin > 0
+    ? Math.max(0, ((totalWorkMin - totalAbsenceMin - totalLateUndertimeMin) / totalWorkMin) * 100)
     : null;
 
   // ── 2. Facility (shared — same score for all employees in the month) ─────────
