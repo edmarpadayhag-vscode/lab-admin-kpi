@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { attendanceLogs, employees } from "@/lib/db/schema";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { calcLateMinutes, expectedOut } from "@/lib/attendance-utils";
+import { calcLateMinutes, expectedOut, isNonWorkSchedule } from "@/lib/attendance-utils";
 
 // ─── Header aliases ────────────────────────────────────────────────────────────
 type RowKey = "date" | "employee" | "firstName" | "lastName" | "schedule" | "actualIn" | "actualOut";
@@ -243,8 +243,8 @@ export async function POST(request: Request) {
 
     // Schedule — use the employee's assigned schedule; file column overrides if present
     const rawSchedule = String(get("schedule") ?? "").trim();
-    const schedule = rawSchedule || empRecord.schedule;
-    const isOff = schedule.toUpperCase() === "OFF";
+    const schedule    = rawSchedule || empRecord.schedule;
+    const nonWork     = isNonWorkSchedule(schedule);
 
     // Times (optional)
     const actualTimeIn  = parseTime(get("actualIn"));
@@ -254,8 +254,8 @@ export async function POST(request: Request) {
       employeeId,
       workDate,
       schedule,
-      expectedTimeIn:  isOff ? null : schedule,
-      expectedTimeOut: isOff ? null : expectedOut(schedule),
+      expectedTimeIn:  nonWork ? null : schedule,
+      expectedTimeOut: nonWork ? null : expectedOut(schedule),
       actualTimeIn,
       actualTimeOut,
       lateMinutes: calcLateMinutes(schedule, actualTimeIn),
