@@ -365,9 +365,16 @@ export default function AttendancePage() {
 
     // Fully non-work: skip entirely
     const isFullyNonWork =
-      log.schedule === "PTO" || log.schedule === "SL" ||
-      log.schedule === "OFF" || log.schedule === "Holiday Off" || isRestDay;
+      log.schedule === "PTO" || log.schedule === "OFF" ||
+      log.schedule === "Holiday Off" || isRestDay;
     if (isFullyNonWork) continue;
+
+    // SL: counts as a work day with no deduction (excused absence)
+    if (log.schedule === "SL") {
+      totalWorkDays++;
+      totalWorkMin += 9 * 60;
+      continue;
+    }
 
     totalWorkDays++;
 
