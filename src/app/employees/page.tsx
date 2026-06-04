@@ -62,6 +62,7 @@ export default function EmployeesPage() {
 
       <EmployeeTable
         employees={employees}
+        onRefresh={load}
       />
     </div>
   );

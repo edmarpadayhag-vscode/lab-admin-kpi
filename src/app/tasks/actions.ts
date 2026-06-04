@@ -52,3 +52,8 @@ export async function deleteTask(id: number) {
   await db.delete(tasks).where(eq(tasks.id, id));
   revalidatePath("/tasks");
 }
+
+export async function clearAllTasks() {
+  await db.delete(tasks);
+  revalidatePath("/tasks");
+}

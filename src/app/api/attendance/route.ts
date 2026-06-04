@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { attendanceLogs, employees } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -17,9 +17,11 @@ export async function GET() {
       remarks: attendanceLogs.remarks,
       employeeId: attendanceLogs.employeeId,
       employeeName: employees.name,
+      restDay1: employees.restDay1,
+      restDay2: employees.restDay2,
     })
     .from(attendanceLogs)
     .innerJoin(employees, eq(attendanceLogs.employeeId, employees.id))
-    .orderBy(desc(attendanceLogs.workDate));
+    .orderBy(asc(attendanceLogs.workDate), asc(attendanceLogs.id));
   return NextResponse.json(rows);
 }

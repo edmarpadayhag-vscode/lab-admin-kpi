@@ -14,7 +14,7 @@ import {
 import { createEmployee, updateEmployee } from "@/app/employees/actions";
 import type { Employee } from "@/types/employee";
 
-type Role = "employee" | "manager" | "admin";
+type Role = "lab_admin" | "trainer" | "qa";
 
 interface Props {
   employee?: Employee;
@@ -22,18 +22,17 @@ interface Props {
 }
 
 export function EmployeeForm({ employee, onSuccess }: Props) {
-  const [role, setRole] = useState<Role>(employee?.role ?? "employee");
+  const [role, setRole] = useState<Role>((employee?.role as Role) ?? "lab_admin");
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
     const data = {
-      name: (form.elements.namedItem("name") as HTMLInputElement).value,
-      email: (form.elements.namedItem("email") as HTMLInputElement).value,
+      name:       (form.elements.namedItem("name")       as HTMLInputElement).value,
+      email:      (form.elements.namedItem("email")      as HTMLInputElement).value,
       role,
       department: (form.elements.namedItem("department") as HTMLInputElement).value,
-      expectedTimeIn: (form.elements.namedItem("expectedTimeIn") as HTMLInputElement).value,
     };
 
     startTransition(async () => {
@@ -60,14 +59,14 @@ export function EmployeeForm({ employee, onSuccess }: Props) {
 
       <div className="space-y-1.5">
         <Label htmlFor="role">Role</Label>
-        <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+        <Select value={role} onValueChange={(v) => v !== null && setRole(v as Role)}>
           <SelectTrigger id="role">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="employee">Employee</SelectItem>
-            <SelectItem value="manager">Manager</SelectItem>
-            <SelectItem value="admin">Admin</SelectItem>
+            <SelectItem value="lab_admin">Lab Admin</SelectItem>
+            <SelectItem value="trainer">Trainer</SelectItem>
+            <SelectItem value="qa">QA</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -75,17 +74,6 @@ export function EmployeeForm({ employee, onSuccess }: Props) {
       <div className="space-y-1.5">
         <Label htmlFor="department">Department</Label>
         <Input id="department" name="department" defaultValue={employee?.department ?? ""} />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="expectedTimeIn">Expected Time In</Label>
-        <Input
-          id="expectedTimeIn"
-          name="expectedTimeIn"
-          type="time"
-          defaultValue={employee?.expectedTimeIn ?? "08:00"}
-          required
-        />
       </div>
 
       <Button type="submit" className="w-full" disabled={isPending}>

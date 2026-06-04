@@ -42,3 +42,7 @@ next-env.d.ts
 
 # Claude Code local settings
 .claude/
+
+# User-uploaded proof images (keep the folder stub)
+/public/uploads/facility/*
+!/public/uploads/facility/.gitkeep

@@ -10,6 +10,7 @@ import {
   CalendarCheck,
   Building2,
   BarChart3,
+  MessageCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,9 +29,11 @@ const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Employees", url: "/employees", icon: Users },
   { title: "Attendance", url: "/attendance", icon: CalendarCheck },
-  { title: "Tasks (TOR)", url: "/tasks", icon: ClipboardList },
-  { title: "ESAT Feedback", url: "/esat", icon: Star },
-  { title: "Facility", url: "/facility", icon: Building2 },
+  { title: "Tasks", url: "/tasks", icon: ClipboardList },
+  { title: "Agents ESAT", url: "/esat/agents", icon: Star },
+  { title: "Client ESAT", url: "/esat/client", icon: Star },
+  { title: "Facility and Orderliness", url: "/facility", icon: Building2 },
+  { title: "Reddit", url: "/reddit", icon: MessageCircle },
   { title: "KPI Reports", url: "/reports", icon: BarChart3 },
 ];
 

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { facilityLogs, employees } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -14,10 +14,12 @@ export async function GET() {
       personnelPresent: facilityLogs.personnelPresent,
       status: facilityLogs.status,
       remarks: facilityLogs.remarks,
+      proofImageUrl: facilityLogs.proofImageUrl,
+      source: facilityLogs.source,
       createdAt: facilityLogs.createdAt,
     })
     .from(facilityLogs)
-    .innerJoin(employees, eq(facilityLogs.submittedBy, employees.id))
-    .orderBy(desc(facilityLogs.date));
+    .leftJoin(employees, eq(facilityLogs.submittedBy, employees.id))
+    .orderBy(asc(facilityLogs.date), asc(facilityLogs.id));
   return NextResponse.json(rows);
 }

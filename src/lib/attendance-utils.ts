@@ -1,11 +1,20 @@
-/** All 30-minute time slots from 00:00 to 23:30, plus OFF. */
-export const SCHEDULE_OPTIONS: string[] = ["OFF"];
+/** Special non-time schedule values. */
+export const SPECIAL_SCHEDULES = ["PTO", "SL", "OFF", "Holiday Off", "1stHalf Absent", "2ndHalf Absent", "Half Day PTO"] as const;
+
+/** All schedule options: special statuses first, then 30-min time slots 00:00–23:30. */
+export const SCHEDULE_OPTIONS: string[] = [...SPECIAL_SCHEDULES];
 for (let h = 0; h < 24; h++) {
   for (let m = 0; m < 60; m += 30) {
     SCHEDULE_OPTIONS.push(
       `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
     );
   }
+}
+
+/** Returns true for schedules that carry no expected-time meaning. */
+export function isNonWorkSchedule(schedule: string): boolean {
+  return schedule === "OFF" || schedule === "PTO" || schedule === "SL" || schedule === "Holiday Off"
+    || schedule === "1stHalf Absent" || schedule === "2ndHalf Absent" || schedule === "Half Day PTO";
 }
 
 /** Add hours to "HH:MM", returns "HH:MM". */
@@ -15,18 +24,30 @@ export function addHours(time: string, hours: number): string {
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-/** Expected out = schedule + 9 h. Returns null when schedule is "OFF". */
+/** Expected out = schedule + 9 h. Returns null for non-work schedules. */
 export function expectedOut(schedule: string): string | null {
-  if (schedule === "OFF") return null;
+  if (isNonWorkSchedule(schedule)) return null;
   return addHours(schedule, 9);
 }
 
-/** Late minutes = MAX(0, actualIn − expectedIn). Returns 0 when OFF or missing. */
+/** Late minutes = MAX(0, actualIn − expectedIn). Returns 0 for non-work schedules or missing times. */
 export function calcLateMinutes(schedule: string, actualIn: string | null): number {
-  if (schedule === "OFF" || !actualIn) return 0;
+  if (isNonWorkSchedule(schedule) || !actualIn) return 0;
   const [eh, em] = schedule.split(":").map(Number);
   const [ah, am] = actualIn.split(":").map(Number);
   return Math.max(0, (ah * 60 + am) - (eh * 60 + em));
+}
+
+/** Undertime minutes = MAX(0, expectedOut − actualOut). Returns 0 if either time is missing.
+ *  Accepts "HH:MM" or "HH:MM:SS" — only the first two parts are used. */
+export function calcUndertimeMinutes(
+  expectedTimeOut: string | null,
+  actualTimeOut: string | null,
+): number {
+  if (!expectedTimeOut || !actualTimeOut) return 0;
+  const [eh, em] = expectedTimeOut.split(":").map(Number);
+  const [ah, am] = actualTimeOut.split(":").map(Number);
+  return Math.max(0, (eh * 60 + em) - (ah * 60 + am));
 }
 
 /** Parse a CSV string into an array of row objects keyed by header. */
