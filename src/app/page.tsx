@@ -43,12 +43,20 @@ type DashboardData = {
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [month, setMonth] = useState(getStoredMonth);
-  const [year,  setYear]  = useState(getStoredYear);
+  const [month, setMonth] = useState(() => String(new Date().getMonth() + 1));
+  const [year,  setYear]  = useState(() => String(new Date().getFullYear()));
+  const [ready,        setReady]       = useState(false);
   const [data,        setData]        = useState<DashboardData | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [liveScores,  setLiveScores]  = useState<Map<number, string | null>>(new Map());
   const [fetchingLive,setFetchingLive]= useState(false);
+
+  // Hydration-safe: read localStorage only after mount, then allow fetching
+  useEffect(() => {
+    setMonth(getStoredMonth());
+    setYear(getStoredYear());
+    setReady(true);
+  }, []);
 
   // Persist period changes and re-fetch
   function handleMonthChange(v: string) {
@@ -61,14 +69,18 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    if (!ready) return;
+    const controller = new AbortController();
     setLoading(true);
     setData(null);
     setLiveScores(new Map());
-    fetch(`/api/dashboard?month=${month}&year=${year}`)
+    fetch(`/api/dashboard?month=${month}&year=${year}`, { signal: controller.signal })
       .then(r => r.json())
       .then((d: DashboardData) => setData(d))
+      .catch(err => { if (err.name !== "AbortError") console.error(err); })
       .finally(() => setLoading(false));
-  }, [month, year]);
+    return () => controller.abort();
+  }, [month, year, ready]);
 
   // Fetch live KPI scores for employees who don't have a stored report yet
   useEffect(() => {
