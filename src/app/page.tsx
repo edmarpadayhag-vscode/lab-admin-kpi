@@ -102,6 +102,9 @@ export default function DashboardPage() {
   const monthLabel = MONTH_NAMES[Number(month) - 1] ?? "";
   const pending    = data?.modules.filter(m => m.status !== "complete") ?? [];
   const complete   = data?.modules.filter(m => m.status === "complete") ?? [];
+  // When every module is finalized the inputs are locked, so the live-computed
+  // score is effectively the final score even without a stored report.
+  const allFinalized = !!data && data.modules.length > 0 && complete.length === data.modules.length;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -163,9 +166,12 @@ export default function DashboardPage() {
             ) : (
               <ul className="space-y-1.5">
                 {data.stats.employeeScores.map(e => {
-                  const isFinal = e.storedScore !== null;
-                  const score   = isFinal ? e.storedScore : (liveScores.get(e.id) ?? null);
-                  const tag     = isFinal ? "(Final)" : fetchingLive ? "…" : "(Incomplete)";
+                  const hasStored = e.storedScore !== null;
+                  const score     = hasStored ? e.storedScore : (liveScores.get(e.id) ?? null);
+                  // Final if a report is stored, or all modules are finalized and the
+                  // live score has resolved. Still "…" while live scores are loading.
+                  const isFinal   = hasStored || (allFinalized && score !== null);
+                  const tag       = isFinal ? "(Final)" : (!hasStored && fetchingLive) ? "…" : "(Incomplete)";
                   return (
                     <li key={e.id} className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium truncate">{e.name}</span>

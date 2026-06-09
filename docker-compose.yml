@@ -10,6 +10,24 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kpi_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Inside the compose network the database is reached via the "db" service
+      # name, not localhost.
+      DATABASE_URL: postgres://postgres:postgres@db:5432/kpi_db
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:
