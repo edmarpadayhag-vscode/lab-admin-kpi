@@ -516,6 +516,28 @@ export default function ReportsPage() {
             <MetaCard title="Facility" value={`${report.meta.compliantCount}/${report.meta.totalFacility} compliant`} />
             <MetaCard title="ESAT Entries" value={`${report.meta.esatCount} submissions`} />
           </div>
+
+          {/* Signature section — for printed sign-off */}
+          <div className="mt-12 pt-6 break-inside-avoid print:mt-16">
+            <div className="grid grid-cols-1 gap-10 sm:grid-cols-3 sm:gap-12">
+              {[
+                { role: "Employee Name", name: selectedEmployee?.name ?? "" },
+                { role: "Prepared By", name: "" },
+                { role: "Reviewed By", name: "" },
+              ].map(({ role, name }) => (
+                <div key={role} className="flex flex-col">
+                  {/* signing space */}
+                  <div className="h-12" />
+                  <div className="border-t border-slate-500 pt-1.5">
+                    <p className="text-sm font-semibold">{role}</p>
+                    {name && <p className="text-sm">{name}</p>}
+                    <p className="mt-2 text-xs text-muted-foreground">Signature over Printed Name</p>
+                    <p className="mt-3 text-xs text-muted-foreground">Date: ____________________</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
