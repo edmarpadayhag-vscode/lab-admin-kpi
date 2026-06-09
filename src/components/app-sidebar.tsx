@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -44,9 +45,14 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="px-4 py-4">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">
-            K
-          </div>
+          <Image
+            src="/logo.png"
+            alt="LabOps KPI logo"
+            width={33}
+            height={36}
+            className="h-8 w-auto dark:invert"
+            priority
+          />
           <div>
             <p className="text-sm font-semibold leading-none">LabOps KPI</p>
             <p className="text-xs text-muted-foreground">Portal</p>
