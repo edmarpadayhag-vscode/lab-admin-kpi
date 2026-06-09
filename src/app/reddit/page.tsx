@@ -340,7 +340,7 @@ export default function RedditPage() {
         <div className="flex flex-col gap-1.5">
           <Label>Month</Label>
           <Select value={filterMonth} onValueChange={v => v !== null && setFilterMonth(v)}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-40"><SelectValue>{(v) => MONTH_NAMES[Number(v) - 1] ?? v}</SelectValue></SelectTrigger>
             <SelectContent>
               {MONTH_NAMES.map((name, i) => (
                 <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>

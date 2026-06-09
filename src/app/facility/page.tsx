@@ -375,7 +375,7 @@ export default function FacilityPage() {
           <Label>Month</Label>
           <Select value={filterMonth} onValueChange={(v) => v !== null && setFilterMonth(v)}>
             <SelectTrigger className="w-40">
-              <SelectValue />
+              <SelectValue>{(v) => MONTH_NAMES[Number(v) - 1] ?? v}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {MONTH_NAMES.map((name, i) => (

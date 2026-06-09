@@ -123,7 +123,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-1">
             <Label className="text-xs">KPI Month</Label>
             <Select value={month} onValueChange={v => v !== null && handleMonthChange(v)}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-36"><SelectValue>{(v) => MONTH_NAMES[Number(v) - 1] ?? v}</SelectValue></SelectTrigger>
               <SelectContent>
                 {MONTH_NAMES.map((n, i) => (
                   <SelectItem key={i + 1} value={String(i + 1)}>{n}</SelectItem>

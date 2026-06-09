@@ -252,7 +252,7 @@ export default function ReportsPage() {
               <Label>Month</Label>
               <Select value={month} onValueChange={(v) => v !== null && setMonth(v)}>
                 <SelectTrigger className="w-40">
-                  <SelectValue />
+                  <SelectValue>{(v) => MONTH_NAMES[Number(v) - 1] ?? v}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {MONTH_OPTIONS.map(m => (
