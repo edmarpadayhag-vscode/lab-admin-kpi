@@ -147,10 +147,11 @@ export async function GET(request: NextRequest) {
       log.schedule === "Holiday Off" || isRestDay;
     if (isFullyNonWork) continue;
 
-    // SL: counts as a work day with no deduction (excused absence)
+    // SL: counts as an absence (full-day deduction)
     if (log.schedule === "SL") {
       totalWorkDays++;
       totalWorkMin += 9 * 60;
+      totalAbsences++;
       continue;
     }
 

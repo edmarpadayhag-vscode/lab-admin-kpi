@@ -11,6 +11,11 @@ for (let h = 0; h < 24; h++) {
   }
 }
 
+/** Human-readable label for a schedule value. The stored value is unchanged. */
+export function scheduleLabel(schedule: string): string {
+  return schedule === "SL" ? "Sick Leave" : schedule;
+}
+
 /** Returns true for schedules that carry no expected-time meaning. */
 export function isNonWorkSchedule(schedule: string): boolean {
   return schedule === "OFF" || schedule === "PTO" || schedule === "SL" || schedule === "Holiday Off"

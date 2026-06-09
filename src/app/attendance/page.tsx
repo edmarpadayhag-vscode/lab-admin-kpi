@@ -20,7 +20,7 @@ import { upsertAttendanceLog, deleteAttendanceLog, clearAllAttendanceLogs, upser
 import { useFinalized } from "@/hooks/use-finalized";
 import { FinalizeButton } from "@/components/finalize-button";
 import { getStoredMonth, getStoredYear } from "@/lib/kpi-period";
-import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes } from "@/lib/attendance-utils";
+import { SCHEDULE_OPTIONS, expectedOut, calcUndertimeMinutes, scheduleLabel } from "@/lib/attendance-utils";
 import type { Employee } from "@/types/employee";
 
 const MONTH_NAMES = [
@@ -156,7 +156,7 @@ function AttendanceForm({
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent className="max-h-56">
               {SCHEDULE_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+                <SelectItem key={s} value={s}>{scheduleLabel(s)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -371,10 +371,11 @@ export default function AttendancePage() {
       log.schedule === "Holiday Off" || isRestDay;
     if (isFullyNonWork) continue;
 
-    // SL: counts as a work day with no deduction (excused absence)
+    // SL: counts as an absence (full-day deduction)
     if (log.schedule === "SL") {
       totalWorkDays++;
       totalWorkMin += 9 * 60;
+      totalAbsences++;
       continue;
     }
 
@@ -714,7 +715,7 @@ export default function AttendancePage() {
             const expectedInCell = isPTO
               ? <Badge variant="outline" className="text-blue-600 border-blue-400">PTO</Badge>
               : isSL
-              ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">SL</Badge>
+              ? <Badge variant="outline" className="text-yellow-600 border-yellow-400">Sick Leave</Badge>
               : isHOff
               ? <Badge variant="outline" className="text-green-600 border-green-400">Holiday Off</Badge>
               : is1stHalfAbsent
