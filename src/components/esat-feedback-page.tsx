@@ -56,6 +56,17 @@ function StarRating({ score }: { score: number }) {
   );
 }
 
+/** Response count target:
+ *  5 = 20+ responses | 4 = 15-19 | 3 = 10-14 | 2 = 5-9 | 1 = 0-4
+ */
+function responseCountScore(count: number): number {
+  if (count >= 20) return 5;
+  if (count >= 15) return 4;
+  if (count >= 10) return 3;
+  if (count >= 5)  return 2;
+  return 1;
+}
+
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey | null; sortDir: SortDir }) {
   if (sortKey !== col) return <ArrowUpDown className="ml-1 inline h-3.5 w-3.5 opacity-40" />;
   return sortDir === "asc"
@@ -479,6 +490,13 @@ export default function EsatFeedbackPage({ esatType }: EsatFeedbackPageProps) {
                             <span className="text-xs text-muted-foreground">No data</span>
                           </div>
                         )}
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs text-muted-foreground">Response Count</span>
+                          <span className="flex items-center gap-0.5">
+                            <StarRating score={responseCountScore(e.staffCount)} />
+                          </span>
+                          <span className="text-xs text-muted-foreground">{e.staffCount} response{e.staffCount === 1 ? "" : "s"}</span>
+                        </div>
                       </>
                     ) : (
                       <AvgRow
